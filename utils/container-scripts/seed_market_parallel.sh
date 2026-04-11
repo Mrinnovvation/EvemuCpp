@@ -3,6 +3,9 @@
 # Spawns one MySQL connection per region concurrently (up to MAX_PARALLEL at a time).
 # Replaces the sequential evedbtool seed command.
 #
+# Each region is pre-assigned an explicit orderID range so sessions never
+# compete for auto-increment values — eliminating ERROR 1467 entirely.
+#
 # Environment variables (all inherited from docker-compose):
 #   SEED_REGIONS     — comma-separated region names
 #   SEED_SATURATION  — integer 0-100 (default 100)
@@ -15,6 +18,10 @@ MARIADB_USER="${MARIADB_USER:-evemu}"
 MARIADB_PORT="${MARIADB_PORT:-3306}"
 SATURATION="${SEED_SATURATION:-100}"
 MAX_PARALLEL="${SEED_PARALLEL:-6}"
+
+# IDs per region slot — must be >= max possible rows per region.
+# Worst case: ~100 stations × ~11000 items = ~1.1M. Use 2M to be safe.
+IDS_PER_REGION=2000000
 
 # Use MYSQL_PWD to avoid the "password on command line" warning
 export MYSQL_PWD="${MARIADB_PASSWORD:-evemu}"
@@ -32,10 +39,11 @@ if [ "${existing:-0}" -gt 0 ]; then
 fi
 
 # ── Per-region seed function (runs in a subshell via xargs) ──────────────────
+# Arguments: <region_name> <start_id>
 seed_region() {
     local region_name="$1"
+    local start_id="$2"
 
-    # Escape any single quotes in the name (region names don't have them, but be safe)
     local safe_name="${region_name//\'/\'\'}"
 
     local regionid
@@ -47,20 +55,21 @@ seed_region() {
         return 0
     fi
 
-    echo "[SEED] Starting : ${region_name} (regionID=${regionid})"
+    echo "[SEED] Starting : ${region_name} (regionID=${regionid}, orderID base=${start_id})"
 
+    # Use explicit orderID values starting at start_id.
+    # This completely bypasses auto-increment so parallel sessions never conflict.
     mysql -h "${MARIADB_HOST}" -P "${MARIADB_PORT}" -u "${MARIADB_USER}" "${MARIADB_DATABASE}" \
         <<SQL
--- Select a random subset of stations for this region based on saturation
 SET @lim = (SELECT ROUND(COUNT(stationID) * ${SAT_DECIMAL}) FROM staStations WHERE regionID = ${regionid});
 SET @i = 0;
 
 CREATE TEMPORARY TABLE tStations (
-    stationID    INT,
+    stationID     INT,
     solarSystemID INT,
-    regionID     INT,
+    regionID      INT,
     corporationID INT,
-    security     FLOAT
+    security      FLOAT
 );
 
 INSERT INTO tStations
@@ -70,11 +79,13 @@ INSERT INTO tStations
       AND  regionID = ${regionid}
     ORDER BY RAND();
 
--- Seed all published items into every selected station for this region
+SET @oid = ${start_id} - 1;
+
 INSERT INTO mktOrders
-    (typeID, ownerID, regionID, stationID, price,
+    (orderID, typeID, ownerID, regionID, stationID, price,
      volEntered, volRemaining, issued, minVolume, duration, solarSystemID, jumps)
 SELECT
+    (@oid := @oid + 1),
     t.typeID,
     s.corporationID,
     s.regionID,
@@ -100,7 +111,7 @@ SQL
 export -f seed_region
 export MARIADB_HOST MARIADB_DATABASE MARIADB_USER MARIADB_PORT MYSQL_PWD SAT_DECIMAL
 
-# ── Parse and run ─────────────────────────────────────────────────────────────
+# ── Parse regions ─────────────────────────────────────────────────────────────
 IFS=',' read -r -a REGION_ARRAY <<< "${SEED_REGIONS:-}"
 
 if [ ${#REGION_ARRAY[@]} -eq 0 ]; then
@@ -112,14 +123,34 @@ echo "[SEED] Seeding ${#REGION_ARRAY[@]} regions with up to ${MAX_PARALLEL} para
 echo "[SEED] Saturation: ${SATURATION}% (factor ${SAT_DECIMAL})"
 START=$(date +%s)
 
-# Feed region names through xargs for a proper parallel job pool.
-# -d '\n'   : treat each newline-delimited line as one argument (GNU xargs)
-# -I{}      : substitute {} with the region name
-# -P N      : run up to N jobs in parallel
-printf '%s\n' "${REGION_ARRAY[@]}" \
-    | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
-    | grep -v '^$' \
-    | xargs -d '\n' -I{} -P"${MAX_PARALLEL}" bash -c 'seed_region "$@"' _ {}
+# ── Launch with pre-assigned ID ranges ────────────────────────────────────────
+# Build a list of "region_name<TAB>start_id" pairs so xargs passes both args.
+REGION_INDEX=0
+PAIRS=()
+for region in "${REGION_ARRAY[@]}"; do
+    region="${region#"${region%%[![:space:]]*}"}"
+    region="${region%"${region##*[![:space:]]}"}"
+    [ -z "$region" ] && continue
+    START_ID=$(( REGION_INDEX * IDS_PER_REGION + 1 ))
+    PAIRS+=("${region}	${START_ID}")   # tab-separated
+    REGION_INDEX=$(( REGION_INDEX + 1 ))
+done
+
+printf '%s\n' "${PAIRS[@]}" \
+    | xargs -d '\n' -P"${MAX_PARALLEL}" bash -c '
+        IFS="	" read -r region start_id <<< "$1"
+        seed_region "$region" "$start_id"
+    ' _
+
+# ── Reset AUTO_INCREMENT to actual max so player orders get valid IDs ─────────
+echo "[SEED] Resetting AUTO_INCREMENT..."
+${MYSQL_BASE} -e "
+    SET @max_id = (SELECT COALESCE(MAX(orderID), 0) FROM mktOrders);
+    SET @sql = CONCAT('ALTER TABLE mktOrders AUTO_INCREMENT = ', @max_id + 1);
+    PREPARE stmt FROM @sql;
+    EXECUTE stmt;
+    DEALLOCATE PREPARE stmt;
+" 2>/dev/null
 
 ELAPSED=$(( $(date +%s) - START ))
 echo "[SEED] All regions seeded in ${ELAPSED}s."

@@ -12,7 +12,9 @@
 
 #include "StaticDataMgr.h"
 #include "dungeon/DungeonDB.h"
+#include "inventory/InventoryItem.h"
 #include "system/SystemBubble.h"
+#include "system/SystemEntity.h"
 #include "system/cosmicMgrs/SpawnMgr.h"
 #include "system/cosmicMgrs/AnomalyMgr.h"
 #include "system/cosmicMgrs/BeltMgr.h"
@@ -232,7 +234,8 @@ DungeonMgr::DungeonMgr(SystemManager* mgr, EVEServiceManager& svc)
 m_services(svc),
 m_anomMgr(nullptr),
 m_spawnMgr(nullptr),
-m_initalized(false)
+m_initalized(false),
+m_procTimer(0)
 {
 }
 
@@ -265,6 +268,9 @@ bool DungeonMgr::Init(AnomalyMgr* anomMgr, SpawnMgr* spawnMgr)
 
         m_spawnMgr->SetDungMgr(this);
 
+        // Check for expired dungeons every 5 minutes
+        m_procTimer.Start(300000);
+
         _log(COSMIC_MGR__INIT, "DungeonMgr Initialized for %s(%u)", m_system->GetName(), m_system->GetID());
 
         m_initalized = true;
@@ -275,9 +281,56 @@ bool DungeonMgr::Init(AnomalyMgr* anomMgr, SpawnMgr* spawnMgr)
 
 void DungeonMgr::Process()
 {
-    // TODO: process and update any active dungeons in the system
     if (!m_initalized)
         return;
+    if (!m_procTimer.Check(false))
+        return;
+
+    int64 now = GetFileTimeNow();
+    std::vector<uint32> toExpire;
+
+    for (auto& kv : m_dungeonList) {
+        const Dungeon::LiveDungeon& dung = kv.second;
+        if (now >= dung.expiryTime)
+            toExpire.push_back(dung.anomalyID);
+    }
+
+    for (uint32 anomalyID : toExpire) {
+        auto it = m_dungeonList.find(anomalyID);
+        if (it == m_dungeonList.end())
+            continue;
+
+        const Dungeon::LiveDungeon& dung = it->second;
+        int8 dungeonType = dung.dungeonType;
+
+        // Remove all room items from space and delete them
+        for (auto& roomKV : dung.rooms) {
+            for (uint32 itemID : roomKV.second.items) {
+                SystemEntity* pSE = m_system->GetSE(itemID);
+                if (pSE != nullptr)
+                    m_system->RemoveEntity(pSE);
+                InventoryItemRef iRef = sItemFactory.GetItemRefFromID(itemID);
+                if (iRef.get() != nullptr)
+                    iRef->Delete();
+            }
+        }
+
+        // Remove the root anomaly SE — this also calls AnomalyMgr::RemoveSignal,
+        // which decrements the counter and removes it from scanner maps
+        SystemEntity* pRootSE = m_system->GetSE(anomalyID);
+        if (pRootSE != nullptr)
+            m_system->RemoveEntity(pRootSE);
+        InventoryItemRef rootRef = sItemFactory.GetItemRefFromID(anomalyID);
+        if (rootRef.get() != nullptr)
+            rootRef->Delete();
+
+        // Re-queue this dungeon type so AnomalyMgr respawns it
+        m_anomMgr->QueueRespawn(dungeonType);
+
+        m_dungeonList.erase(it);
+
+        _log(COSMIC_MGR__MESSAGE, "DungeonMgr::Process() - Expired dungeon anomalyID %u (type %u), re-queued for respawn", anomalyID, dungeonType);
+    }
 }
 
 bool DungeonMgr::MakeDungeon(CosmicSignature& sig, uint32 dungeonID)
@@ -318,7 +371,10 @@ bool DungeonMgr::MakeDungeon(CosmicSignature& sig, uint32 dungeonID)
         // Create the new live dungeon
         Dungeon::LiveDungeon newDungeon;
         newDungeon.anomalyID = iRef->itemID();
-        newDungeon.systemID = iRef->itemID();
+        newDungeon.systemID = sig.systemID;
+        newDungeon.dungeonType = sig.dungeonType;
+        // Sites expire after 2 hours; Process() cleans them up and re-queues for respawn
+        newDungeon.expiryTime = GetFileTimeNow() + (2 * EvE::Time::Hour);
 
         // Iterate through rooms and handle item spawning for each room
         uint16 roomCounter = 0;
@@ -379,6 +435,7 @@ bool DungeonMgr::MakeDungeon(CosmicSignature& sig, uint32 dungeonID)
 
         // Finally add the new dungeon to the system-wide list for tracking
         m_dungeonList.insert({newDungeon.anomalyID, newDungeon});
+        return true;
     }
     return false;
 }

@@ -603,6 +603,18 @@ void AnomalyMgr::RemoveSignal(uint32 itemID)
     // remove sig from our map
     std::map<uint32, CosmicSignature>::iterator itr = m_sigByItemID.find(itemID);
     if (itr != m_sigByItemID.end()) {
+        // Decrement the appropriate type counter so new sites can spawn
+        switch (itr->second.dungeonType) {
+            case Dungeon::Type::Wormhole:        if (m_WH > 0)      --m_WH;      break;
+            case Dungeon::Type::Gravimetric:     if (m_Grav > 0)    --m_Grav;    break;
+            case Dungeon::Type::Magnetometric:   if (m_Mag > 0)     --m_Mag;     break;
+            case Dungeon::Type::Radar:           if (m_Radar > 0)   --m_Radar;   break;
+            case Dungeon::Type::Ladar:           if (m_Ladar > 0)   --m_Ladar;   break;
+            case Dungeon::Type::Unrated:         if (m_Unrated > 0) --m_Unrated; break;
+            case Dungeon::Type::Rated:           if (m_Complex > 0) --m_Complex; break;
+            default: break;
+        }
+        if (m_Sigs > 0) --m_Sigs;
         auto itr2 = m_sigBySigID.find(itr->second.sigID);
         if (itr2 != m_sigBySigID.end())
             m_sigBySigID.erase(itr2);
@@ -610,6 +622,7 @@ void AnomalyMgr::RemoveSignal(uint32 itemID)
     } else {  // not Signature, check in Anomaly map
         itr = m_anomByItemID.find(itemID);
         if (itr != m_anomByItemID.end()) {
+            if (m_Anoms > 0) --m_Anoms;
             auto itr2 = m_sigBySigID.find(itr->second.sigID);
             if (itr2 != m_sigBySigID.end())
                 m_sigBySigID.erase(itr2);

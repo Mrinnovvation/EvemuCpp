@@ -73,6 +73,7 @@ Things to verify after recent changes (0.8.7). Check off each item as you confir
 
 - [ ] **NPC repair visual** — Attack an NPC rat until its health drops. If it has repair modules (common on cruisers/battlecruisers), it should show a shield glow or armor repair beam animation on the NPC model.
 - [ ] **NPC health bar updates on repair** — With an NPC targeted, its health bar should visibly rise when it activates a repair module, not stay frozen at a low value.
+- [ ] **NPC damage numbers** — When an NPC lands a hit on you, a combat log message like "[NPC name] hits you, doing X damage." should appear immediately. Messages should not be delayed or arrive in batches after you click something.
 
 ---
 

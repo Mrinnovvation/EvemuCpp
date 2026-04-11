@@ -351,6 +351,11 @@ bool SystemEntity::ApplyDamage(Damage &d) {
         }
 
         SendDamageStateChanged();
+
+        // Flush immediately so damage notifications reach the client in real time,
+        // not delayed until the player's next input packet.
+        if (HasPilot())
+            GetPilot()->FlushQueue();
     }
 
     if (sConfig.debug.UseProfiling)

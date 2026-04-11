@@ -1,13 +1,11 @@
-# [EVEmu](https://evemu.dev) - An EVE Online Emulator
+# EVEmu Crucible — Claude Fork
 
-<p align="center">
-	<a href="https://github.com/EvEmu-Project/evemu_Crucible/pulse"><img src="https://img.shields.io/tokei/lines/github/EvEmu-Project/evemu_Crucible" /></a>
-	<a href="https://www.codefactor.io/repository/github/evemu-project/evemu_crucible"><img src="https://img.shields.io/codefactor/grade/github/evemu-project/evemu_crucible" /></a>
-	<a href="https://github.com/EvEmu-Project/evemu_Crucible/graphs/commit-activity"><img src="https://img.shields.io/github/commit-activity/w/EvEmu-Project/evemu_Crucible" /></a>
-	<a href="https://github.com/EvEmu-Project/evemu_Crucible/graphs/contributors"><img src="https://img.shields.io/github/contributors/EvEmu-Project/evemu_Crucible" /></a>
-	<a href="https://discord.gg/fTfAREYxbz"><img src="https://img.shields.io/discord/165291219205881856" /></a>
-	<a href="https://github.com/EvEmu-Project/evemu_Crucible/issues"><img src="https://img.shields.io/github/issues-raw/EvEmu-Project/evemu_Crucible" /></a>
-</p>
+This is a personal fork of [EVEmu Crucible](https://github.com/EvEmu-Project/evemu_Crucible), an open-source server emulator for the space MMO EVE Online. This fork is actively developed with AI-assisted bug fixes and feature implementations. See the [ChangeLog](doc/ChangeLog.md) for what has been added on top of the upstream project.
+
+**Upstream project:** https://github.com/EvEmu-Project/evemu_Crucible
+**This fork:** https://github.com/rumpelstompskin/evemu_Crucible_Claude
+
+---
 
 ## Introduction
 EVEmu is a work-in-progress server emulator for the space MMO EVE Online. This is an educational project. Please see the disclaimer below for details.
@@ -15,48 +13,62 @@ EVEmu is a work-in-progress server emulator for the space MMO EVE Online. This i
 ## ChangeLog
 [ChangeLog](doc/ChangeLog.md)
 
-## EVEmu Software Development Kit ##
-The EVEmu project maintains a set of pre-configured tools and environments that help with setting up a new development station. [Check them out](https://github.com/EvEmu-Project/EvEmu_SDK)
-
-Additional details on the SDK are [available on the wiki](https://wiki.evemu.dev/wiki/EVEmu-SDK).
-
 ## `docker compose` Quickstart
- EVEmu can be run with Docker Compose:
+
+Clone **this fork** and run with Docker Compose:
 ```
-git clone https://github.com/EvEmu-Project/evemu_Crucible.git
-cd evemu_Crucible
+git clone https://github.com/rumpelstompskin/evemu_Crucible_Claude.git
+cd evemu_Crucible_Claude
 docker compose up -d
 ```
-**NOTE:** Add `--build` to the `docker compose up` command to force a rebuild of the source. This is useful when making code changes.
 
-~~By changing `build:` to `image:` in `docker-compose.yml`, you can use the prebuilt images available.~~
+> **Note:** If your Docker installation is older (pre-Compose V2), use `docker-compose` (with a hyphen) instead of `docker compose`.
+
+**NOTE:** Add `--build` to the command to force a rebuild of the source after pulling new changes:
+```
+docker compose up -d --build
+```
 
 Configuration files are stored in `./config/`. These can be modified and will persist across restarts.
 
-To shutdown EVEmu:
+To shut down:
 ```
 docker compose stop
 ```
 
-## Building with Docker
- EVEmu can now be built with docker to ensure a consistent dependency base. This can be done by executing `docker compose build` in the root directory.
- It is highly suggested to build EVEmu from the latest release available on the releases page.
+To wipe and start fresh (removes database volume — market will re-seed on next start):
+```
+docker compose down -v
+docker compose up -d
+```
 
- [Releases](https://github.com/EvEmu-Project/evemu_Crucible/releases)
+## Market Seeding
+
+On first start, the market is automatically seeded. The default configuration seeds the following regions:
+
+- The Forge (Caldari)
+- The Citadel (Caldari secondary)
+- Domain (Amarr)
+- Essence (Gallente)
+- Heimatar (Minmatar)
+
+These can be changed via the `SEED_REGIONS` environment variable in `docker-compose.yml`.
+
+## Building with Docker
+EVEmu can be built with Docker to ensure a consistent dependency base:
+```
+docker compose build
+```
 
 ## Accounts
- Accounts will be created automatically when logging in with the client if the username is not already taken.
+Accounts are created automatically when logging in with the EVE client if the username is not already taken.
 
 ## Communication / Contact
- Check out the new [EVEmu Project website](https://evemu.dev), our [Discord](https://discord.gg/fTfAREYxbz) and [Forums](https://forums.evemu.dev)!
+For the upstream project: [EVEmu Project website](https://evemu.dev), [Discord](https://discord.gg/fTfAREYxbz), and [Forums](https://forums.evemu.dev).
 
 ## Disclaimer
 ***EVEmu is an educational project.***
- This means, our primary interest is to learn and teach us
-and our users more about C++ project development in a large
-scale. Our software is not intended for running public servers,
-and we do not support that. We are not responsible for what others
-do with the source code downloaded from this project.
+This means our primary interest is to learn and teach ourselves and our users more about C++ project development at scale. This software is not intended for running public servers, and we do not support that. We are not responsible for what others do with the source code downloaded from this project.
 
 ## Legal
     ------------------------------------------------------------------------------------
@@ -78,4 +90,3 @@ do with the source code downloaded from this project.
     You should have received a copy of the GNU Lesser General Public License along with
     this program; if not, see https://www.gnu.org/licenses/.
     ------------------------------------------------------------------------------------
-

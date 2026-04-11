@@ -28,6 +28,7 @@
 
 #include "StaticDataMgr.h"
 #include "system/Celestial.h"
+#include "system/SystemBubble.h"
 #include "system/SystemManager.h"
 
 /*

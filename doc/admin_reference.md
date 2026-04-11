@@ -5,7 +5,7 @@
 Log in once to create the account row, then use the helper script:
 
 ```bash
-./utils/grant-admin.sh your_username
+bash utils/grant-admin.sh your_username
 ```
 
 Or run the raw command manually:

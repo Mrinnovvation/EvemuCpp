@@ -46,7 +46,23 @@ docker compose up -d
 
 On first start, the market is automatically seeded across all regions that have NPC stations — empire high/low-sec space plus NPC null-sec (Curse, Stain, Venal, Great Wildlands, Syndicate, Outer Ring).
 
+> **Note:** The first boot will take significantly longer than normal due to the volume of market data being inserted. This is expected — just let it run. Subsequent restarts skip seeding entirely since the data is already stored in the database volume.
+
 The list of seeded regions can be changed via the `SEED_REGIONS` environment variable in `docker-compose.yml`.
+
+### Monitoring first-boot progress
+
+To follow the server container logs and see where the process is at:
+```bash
+docker logs -f server
+```
+
+To check only the database container logs:
+```bash
+docker logs -f db
+```
+
+You will see output like `Executing migration ...` during the database setup phase — **this is normal, just wait for it to complete.** The server will start automatically once the migration and seeding are finished.
 
 ## Building with Docker
 EVEmu can be built with Docker to ensure a consistent dependency base:

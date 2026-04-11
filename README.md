@@ -63,9 +63,9 @@ Admin access unlocks in-game GM commands such as `/giveallskills me` and `/spawn
 
 **Step 1** — Start the server and log in with the EVE client. Complete character creation. This creates your account row in the database.
 
-**Step 2** — From the repo root, run the helper script (use quotes if your username contains spaces):
+**Step 2** — From the repo root, run the helper script with your **account name** (the name you type at the login screen, not your character name). Use quotes if it contains spaces:
 ```bash
-bash utils/grant-admin.sh "Your Username"
+bash utils/grant-admin.sh "Your Account Name"
 ```
 
 **Step 3** — Log out of the game client completely and log back in. GM commands are now available in in-game chat.

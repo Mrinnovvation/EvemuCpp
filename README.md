@@ -44,15 +44,9 @@ docker compose up -d
 
 ## Market Seeding
 
-On first start, the market is automatically seeded. The default configuration seeds the following regions:
+On first start, the market is automatically seeded across all regions that have NPC stations — empire high/low-sec space plus NPC null-sec (Curse, Stain, Venal, Great Wildlands, Syndicate, Outer Ring).
 
-- The Forge (Caldari)
-- The Citadel (Caldari secondary)
-- Domain (Amarr)
-- Essence (Gallente)
-- Heimatar (Minmatar)
-
-These can be changed via the `SEED_REGIONS` environment variable in `docker-compose.yml`.
+The list of seeded regions can be changed via the `SEED_REGIONS` environment variable in `docker-compose.yml`.
 
 ## Building with Docker
 EVEmu can be built with Docker to ensure a consistent dependency base:
@@ -62,6 +56,27 @@ docker compose build
 
 ## Accounts
 Accounts are created automatically when logging in with the EVE client if the username is not already taken.
+
+## Granting Admin / GM Access
+
+Admin access unlocks in-game GM commands such as `/giveallskills me` and `/spawn`.
+
+**Step 1** — Start the server and log in with the EVE client. Complete character creation. This creates your account row in the database.
+
+**Step 2** — From the repo root, run the helper script (use quotes if your username contains spaces):
+```bash
+bash utils/grant-admin.sh "Your Username"
+```
+
+**Step 3** — Log out of the game client completely and log back in. GM commands are now available in in-game chat.
+
+To verify it worked:
+```bash
+docker exec db mysql -u evemu -pevemu evemu -e "SELECT accountName, role FROM account;"
+```
+A role value of `2013265920` confirms full admin access.
+
+For a full list of available GM commands see [doc/admin_reference.md](doc/admin_reference.md).
 
 ## Communication / Contact
 For the upstream project: [EVEmu Project website](https://evemu.dev), [Discord](https://discord.gg/fTfAREYxbz), and [Forums](https://forums.evemu.dev).

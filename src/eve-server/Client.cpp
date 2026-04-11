@@ -55,6 +55,7 @@
 #include "system/SystemManager.h"
 #include "system/SystemBubble.h"
 #include "system/cosmicMgrs/AnomalyMgr.h"
+#include "system/cosmicMgrs/WormholeMgr.h"
 #include "exploration/Scan.h"
 #include "station/Station.h"
 #include "station/TradeService.h"
@@ -123,6 +124,7 @@ Client::Client(EVEServiceManager& services, EVETCPConnection** con)
     m_moveSystemID = 0;
     m_skillTimer = 0;
     m_dockStationID = 0;
+    m_jumpWormholeID = 0;
 
     m_lpMap.clear();
     m_channels.clear();
@@ -1483,6 +1485,23 @@ void Client::WormholeJump(InventoryItemRef wormhole) {
         return;
     }
 
+    // Mass validation — check ship fits through and wormhole has mass remaining
+    int64 shipMass = pShipSE->GetSelf()->GetAttribute(AttrMass).get_int();
+    int64 maxJumpMass = wormhole->GetAttribute(AttrWormholeMaxJumpMass).get_int();
+    int64 remainingMass = wormhole->GetAttribute(AttrWormholeMaxStableMass).get_int();
+
+    if (maxJumpMass > 0 && shipMass > maxJumpMass) {
+        SendNotifyMsg("Your ship is too large to fit through this wormhole.");
+        return;
+    }
+    if (remainingMass <= 0) {
+        SendNotifyMsg("This wormhole has collapsed.");
+        return;
+    }
+
+    // Store wormhole itemID so ExecuteWormholeJump() can deduct mass after the jump
+    m_jumpWormholeID = wormhole->itemID();
+
     MapDB::AddJump(m_locationID);
     pShipSE->DestinyMgr()->SendJumpOutWormhole(wormhole->itemID());
     pShipSE->DestinyMgr()->SendWormholeActivity(wormhole->itemID());
@@ -1547,6 +1566,34 @@ void Client::ExecuteWormholeJump() {
         _log(AUTOPILOT__TRACE, "ExecuteWormholeJump() - movePoint = null; state set to Idle");
         /** @todo  send error to client here */
         return;
+    }
+
+    // Deduct ship mass from both sides of the wormhole now that the jump is committed
+    if (m_jumpWormholeID != 0) {
+        InventoryItemRef entWH = sItemFactory.GetItemRefFromID(m_jumpWormholeID);
+        if (entWH.get() != nullptr) {
+            int64 shipMass = pShipSE->GetSelf()->GetAttribute(AttrMass).get_int();
+
+            // Deduct from entrance WH
+            int64 remaining = entWH->GetAttribute(AttrWormholeMaxStableMass).get_int();
+            entWH->SetAttribute(AttrWormholeMaxStableMass, remaining - shipMass);
+            entWH->SaveItem();
+
+            // Deduct from paired exit WH (K162)
+            uint32 exitID = entWH->GetAttribute(AttrWormholeTargetSystem2).get_uint32();
+            if (exitID != 0) {
+                InventoryItemRef exitWH = sItemFactory.GetItemRefFromID(exitID);
+                if (exitWH.get() != nullptr) {
+                    remaining = exitWH->GetAttribute(AttrWormholeMaxStableMass).get_int();
+                    exitWH->SetAttribute(AttrWormholeMaxStableMass, remaining - shipMass);
+                    exitWH->SaveItem();
+                }
+            }
+
+            // Notify WormholeMgr to update visual state and collapse if depleted
+            sWHMgr.OnJump(m_jumpWormholeID, shipMass);
+        }
+        m_jumpWormholeID = 0;
     }
 
     //OnScannerInfoRemoved  - no args.  flushes current scan data in client

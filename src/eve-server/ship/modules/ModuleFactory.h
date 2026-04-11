@@ -37,6 +37,7 @@
 #include "ship/modules/ModuleItem.h"
 #include "ship/modules/TurretModule.h"
 #include "ship/modules/CynoModule.h"
+#include "ship/modules/ProbeLauncher.h"
 
 static GenericModule* ModuleFactory(ModuleItemRef mRef, ShipItemRef sRef)
 {
@@ -105,7 +106,7 @@ static GenericModule* ModuleFactory(ModuleItemRef mRef, ShipItemRef sRef)
             case EVEDB::invGroups::Cloaking_Device:                         return (new ActiveModule(mRef, sRef));    // Active  -  SELF
             case EVEDB::invGroups::Target_Painter:                          return (new ActiveModule(mRef, sRef));    // Active - external
             case EVEDB::invGroups::Drone_Control_Unit:                      return (new PassiveModule(mRef, sRef));
-            case EVEDB::invGroups::Scan_Probe_Launcher:                     return (new ActiveModule(mRef, sRef));    // Active - external
+            case EVEDB::invGroups::Scan_Probe_Launcher:                     return (new ProbeLauncher(mRef, sRef));   // Active - launches scan probes
             case EVEDB::invGroups::Drone_Navigation_Computer:               return (new PassiveModule(mRef, sRef));
             case EVEDB::invGroups::Drone_Tracking_Modules:                  return (new PassiveModule(mRef, sRef));
             case EVEDB::invGroups::Drone_Control_Range_Module:              return (new PassiveModule(mRef, sRef));

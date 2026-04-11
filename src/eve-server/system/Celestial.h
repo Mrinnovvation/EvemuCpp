@@ -139,6 +139,15 @@ public:
 
     virtual PyDict*             MakeSlimItem();
 
+    /* Mass state and visual updates */
+    void                        UpdateMassState(int64 remainingMass, int64 maxMass);
+    void                        SendSlimUpdate();
+
+    /* Age/expiry accessors for WormholeMgr::Process() */
+    int64   GetExpiryDate() const   { return m_expiryDate; }
+    int8    GetAge() const          { return m_wormholeAge; }
+    void    SetAge(int8 age)        { m_wormholeAge = age; }
+
 private:
     int8    m_wormholeAge;
     float   m_wormholeSize;

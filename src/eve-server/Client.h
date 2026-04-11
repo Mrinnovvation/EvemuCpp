@@ -385,8 +385,9 @@ protected:
     uint32 m_shipId;
     //uint32 m_toGate;
     uint32 m_locationID;
-    uint32 m_moveSystemID;  // holder for jumping to 'systemID'.    timer based.
-    uint32 m_dockStationID; // holder for docking to 'stationID'.  timer based.
+    uint32 m_moveSystemID;      // holder for jumping to 'systemID'.    timer based.
+    uint32 m_dockStationID;     // holder for docking to 'stationID'.  timer based.
+    uint32 m_jumpWormholeID;    // wormhole itemID currently being jumped through (for mass deduction)
 
     Timer m_stateTimer;      // state timer to consolidate timers
     Timer m_pingTimer;

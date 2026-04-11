@@ -17,7 +17,9 @@
 
 #include "StaticDataMgr.h"
 #include "inventory/InventoryItem.h"
+#include "system/Celestial.h"
 #include "system/SystemBubble.h"
+#include "system/SystemEntity.h"
 #include "system/SystemManager.h"
 #include "system/cosmicMgrs/AnomalyMgr.h"
 #include "system/cosmicMgrs/WormholeMgr.h"
@@ -65,9 +67,133 @@ void WormholeMgr::Initialize() {
 void WormholeMgr::Process() {
     if (!m_initalized)
         return;
-    if (m_updateTimer.Check(false)) {
-        /* do something useful here */
+    if (!m_updateTimer.Check(false))
+        return;
+
+    std::vector<uint32> toCollapse;
+
+    for (uint32 whItemID : m_wormholes) {
+        InventoryItemRef wh = sItemFactory.GetItemRefFromID(whItemID);
+        if (!wh.get()) {
+            toCollapse.push_back(whItemID);
+            continue;
+        }
+
+        // Check timer expiry and update age via WormholeSE
+        auto it = m_whToSystem.find(whItemID);
+        if (it != m_whToSystem.end()) {
+            SystemManager* pSys = sEntityList.FindOrBootSystem(it->second);
+            if (pSys != nullptr) {
+                SystemEntity* pSE = pSys->GetSE(whItemID);
+                if (pSE != nullptr && pSE->IsWormholeSE()) {
+                    WormholeSE* wSE = pSE->GetWormholeSE();
+                    int64 now = Win32TimeNow();
+                    int64 expiry = wSE->GetExpiryDate();
+                    if (expiry - now <= 0) {
+                        toCollapse.push_back(whItemID);
+                        continue;
+                    }
+                    // Update time-based age
+                    int64 timeLeft = expiry - now;
+                    float timeRatio = (float)timeLeft / (float)EvE::Time::Day;
+                    if (timeRatio < 0.10f && wSE->GetAge() < WormHole::Age::Closing)
+                        wSE->SetAge(WormHole::Age::Closing);
+                    else if (timeRatio < 0.25f && wSE->GetAge() < WormHole::Age::Decaying)
+                        wSE->SetAge(WormHole::Age::Decaying);
+                }
+            }
+        }
+
+        // Mass regeneration
+        int64 regen = wh->GetAttribute(AttrWormholeMassRegeneration).get_int();
+        if (regen > 0) {
+            int64 remaining = wh->GetAttribute(AttrWormholeMaxStableMass).get_int();
+            int64 maxMass = wh->GetDefaultAttribute(AttrWormholeMaxStableMass).get_int();
+            if (maxMass <= 0)
+                maxMass = wh->GetAttribute(AttrWormholeMaxStableMass).get_int();
+            if (remaining < maxMass) {
+                remaining = std::min(maxMass, remaining + regen);
+                wh->SetAttribute(AttrWormholeMaxStableMass, remaining);
+                wh->SaveItem();
+            }
+        }
+
+        // Collapse if mass is fully depleted
+        if (wh->GetAttribute(AttrWormholeMaxStableMass).get_int() <= 0)
+            toCollapse.push_back(whItemID);
     }
+
+    for (uint32 id : toCollapse)
+        Collapse(id);
+}
+
+void WormholeMgr::OnJump(uint32 whItemID, int64 shipMass) {
+    InventoryItemRef wh = sItemFactory.GetItemRefFromID(whItemID);
+    if (!wh.get())
+        return;
+
+    int64 remaining = wh->GetAttribute(AttrWormholeMaxStableMass).get_int();
+
+    // Update visual state on entrance WH's SE
+    auto it = m_whToSystem.find(whItemID);
+    if (it != m_whToSystem.end()) {
+        SystemManager* pSys = sEntityList.FindOrBootSystem(it->second);
+        if (pSys != nullptr) {
+            SystemEntity* pSE = pSys->GetSE(whItemID);
+            if (pSE != nullptr && pSE->IsWormholeSE()) {
+                int64 maxMass = wh->GetDefaultAttribute(AttrWormholeMaxStableMass).get_int();
+                if (maxMass <= 0)
+                    maxMass = remaining + shipMass;  // estimate if default unavailable
+                pSE->GetWormholeSE()->UpdateMassState(remaining, maxMass);
+                pSE->GetWormholeSE()->SendSlimUpdate();
+            }
+        }
+    }
+
+    // Collapse if depleted
+    if (remaining <= 0)
+        Collapse(whItemID);
+}
+
+void WormholeMgr::Collapse(uint32 whItemID) {
+    InventoryItemRef wh = sItemFactory.GetItemRefFromID(whItemID);
+    if (!wh.get())
+        return;
+
+    // Collapse the paired exit WH first
+    uint32 exitID = wh->GetAttribute(AttrWormholeTargetSystem2).get_uint32();
+    if (exitID != 0 && exitID != whItemID) {
+        auto exitIt = m_whToSystem.find(exitID);
+        if (exitIt != m_whToSystem.end()) {
+            SystemManager* pExitSys = sEntityList.FindOrBootSystem(exitIt->second);
+            if (pExitSys != nullptr) {
+                SystemEntity* pSE = pExitSys->GetSE(exitID);
+                if (pSE != nullptr)
+                    pExitSys->RemoveEntity(pSE);
+            }
+            m_whToSystem.erase(exitIt);
+        }
+        InventoryItemRef exitWH = sItemFactory.GetItemRefFromID(exitID);
+        if (exitWH.get())
+            exitWH->Delete();
+        m_wormholes.erase(std::remove(m_wormholes.begin(), m_wormholes.end(), exitID), m_wormholes.end());
+    }
+
+    // Collapse entrance WH
+    auto it = m_whToSystem.find(whItemID);
+    if (it != m_whToSystem.end()) {
+        SystemManager* pSys = sEntityList.FindOrBootSystem(it->second);
+        if (pSys != nullptr) {
+            SystemEntity* pSE = pSys->GetSE(whItemID);
+            if (pSE != nullptr)
+                pSys->RemoveEntity(pSE);
+        }
+        m_whToSystem.erase(it);
+    }
+    wh->Delete();
+    m_wormholes.erase(std::remove(m_wormholes.begin(), m_wormholes.end(), whItemID), m_wormholes.end());
+
+    _log(WORMHOLE_MGR__DEBUG, "WormholeMgr::Collapse() - Collapsed wormhole %u", whItemID);
 }
 
 void WormholeMgr::Create(CosmicSignature& sig, uint32 exitSystemID/*=0*/, uint32 exitSourceItemID/*=0*/)
@@ -180,8 +306,9 @@ void WormholeMgr::Create(CosmicSignature& sig, uint32 exitSystemID/*=0*/, uint32
     // add wormhole to system (signal added to AnomalyMgr on successful return)
     pSysMgr->AddEntity(wSE, false);
     sig.bubbleID = wSE->SysBubble()->GetID();
-    // add wormhole to vector
+    // add wormhole to tracking structures
     m_wormholes.push_back(iRef->itemID());
+    m_whToSystem[iRef->itemID()] = sig.systemID;
 
     // Call CreateExit() to create an exit wormhole (only if Create() was not called for an exit already)
     if (exitSystemID == 0) {

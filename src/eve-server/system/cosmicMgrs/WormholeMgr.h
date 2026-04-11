@@ -15,6 +15,8 @@
 #define EVEMU_SYSTEM_WORMHOLEMGR_H_
 
 
+#include <map>
+
 #include "ServiceDB.h"
 #include "utils/Singleton.h"
 #include "system/cosmicMgrs/ManagerDB.h"
@@ -42,6 +44,11 @@ public:
     void CreateExit(SystemManager* pFromSys, SystemManager* pToSys, uint32 sourceItemID);
     void CreateExit(SystemManager* pFromSys, uint32 exitSystemID, uint32 sourceItemID);
 
+    // Called by Client after a ship jumps through; updates mass state and may collapse WH
+    void OnJump(uint32 whItemID, int64 shipMass);
+    // Collapse a wormhole and its paired exit, removing both from space
+    void Collapse(uint32 whItemID);
+
 private:
     ManagerDB* m_mdb;
     ServiceDB* m_sdb;
@@ -55,7 +62,8 @@ private:
     uint32 GetRandomDestination(const ItemType* typeID);
 
     // as system matures, this will definitely need to be updated
-    std::vector<uint32>         m_wormholes;   //exitID
+    std::vector<uint32>         m_wormholes;        // itemIDs of all tracked wormholes
+    std::map<uint32, uint32>    m_whToSystem;       // wormhole itemID → systemID for fast lookup
 };
 
 

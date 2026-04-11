@@ -55,6 +55,13 @@ Things to verify after recent changes (0.8.7). Check off each item as you confir
 
 ---
 
+## GM Commands
+
+- [ ] **`/giveallskills me`** — Run the command, open the character sheet Skills tab. All skills should appear at level 5.
+- [ ] **Skills persist after restart** — After running `/giveallskills me`, restart the server and log back in. All skills should still be level 5 (not reset).
+
+---
+
 ## Stability
 
 - [ ] **No crash on combat** — Engage NPCs with modules active and drones out. Killing NPCs or having modules deactivate mid-combat should not crash the server.

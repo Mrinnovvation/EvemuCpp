@@ -607,13 +607,14 @@ PyResult Command_giveallskills(Client* who, CommandDB* db, EVEServiceManager &se
                 skill = sItemFactory.SpawnSkill(idata);
 
                 if (skill.get() == nullptr)
-                    throw CustomError ("Unable to create item of type %s.", skill->typeID());
+                    throw CustomError ("Unable to create item for skillID %u.", skillID);
 
                 skill->SetAttribute(AttrSkillLevel, level);
                 skill->SetAttribute(AttrSkillPoints, skill->GetSPForLevel(level));
                 // this will inform the client that the skill got injected into their brains!
                 skill->ChangeSingleton(true);
                 skill->Move(ownerID, flagSkill, true);
+                skill->SaveItem();
             }
 
             OnAdminSkillChange oasc;
@@ -625,7 +626,7 @@ PyResult Command_giveallskills(Client* who, CommandDB* db, EVEServiceManager &se
 
             //  save gm skill gift in history  -allan
             //  maybe not for this....WAAAAYYY  to much DB traffic for this.
-            character->SaveSkillHistory(EvESkill::Event::GMGift, Win32TimeNow(), ownerID, skillID, level, \
+            character->SaveSkillHistory(EvESkill::Event::GMGift, GetFileTimeNow(), ownerID, skillID, level, \
             skill->GetAttribute(AttrSkillPoints).get_double());
         }
         // END LOOP

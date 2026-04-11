@@ -53,14 +53,7 @@ echo "Running EVEDBTool..."
 
 if [ "$SEED_MARKET" == "TRUE" ]
 then
-    IFS=',' read -r -a array <<< "$SEED_REGIONS"
-    echo "seed-saturation: $SEED_SATURATION" >> /src/sql/evedb.yaml
-    echo "seed-regions: " >> /src/sql/evedb.yaml
-    for i in "${array[@]}"
-    do
-        echo "- $i" >> /src/sql/evedb.yaml
-    done
-    /src/sql/evedbtool seed
+    /src/utils/container-scripts/seed_market_parallel.sh
 fi
 
 echo "Loading all dungeons using EVEDBTool..."

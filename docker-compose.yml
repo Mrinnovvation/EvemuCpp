@@ -17,7 +17,7 @@ services:
     environment:
       - SEED_MARKET=${SEED_MARKET:-TRUE} # Set to TRUE to seed the market when the server starts for the first time
       - SEED_SATURATION=${SEED_SATURATION:-100} # Set saturation level of seed
-      - SEED_REGIONS=${SEED_REGIONS:-The Forge,The Citadel,Domain,Essence,Heimatar} # Define regions to be seeded (all 4 race starting regions + Caldari secondary)
+      - SEED_REGIONS=${SEED_REGIONS:-The Forge,The Citadel,Lonetrek,Black Rise,Domain,Devoid,The Bleak Lands,Aridia,Genesis,Kador,Khanid,Kor-Azor,Tash-Murkon,Derelik,Essence,Everyshore,Placid,Verge Vendor,Sinq Laison,Solitude,Heimatar,Metropolis,Molden Heath,Curse,Stain,Venal,Great Wildlands,Syndicate,Outer Ring} # All regions with NPC stations (empire + NPC null-sec)
       - RUN_WITH_GDB=${RUN_GDB:-FALSE} #Set to TRUE to run evemu with gdb automatically
     stdin_open: true # Enables stdin for the container. Attach to it with 'docker attach'
     tty: true

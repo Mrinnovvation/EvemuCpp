@@ -14,7 +14,7 @@ MARIADB_DATABASE="${MARIADB_DATABASE:-evemu}"
 MARIADB_USER="${MARIADB_USER:-evemu}"
 MARIADB_PORT="${MARIADB_PORT:-3306}"
 SATURATION="${SEED_SATURATION:-100}"
-MAX_PARALLEL="${SEED_PARALLEL:-6}"
+MAX_PARALLEL="${SEED_PARALLEL:-3}"
 
 # Use MYSQL_PWD to avoid the "password on command line" warning
 export MYSQL_PWD="${MARIADB_PASSWORD:-evemu}"
@@ -50,7 +50,7 @@ seed_region() {
     echo "[SEED] Starting : ${region_name} (regionID=${regionid})"
 
     mysql -h "${MARIADB_HOST}" -P "${MARIADB_PORT}" -u "${MARIADB_USER}" "${MARIADB_DATABASE}" \
-        2>/dev/null <<SQL
+        <<SQL
 -- Select a random subset of stations for this region based on saturation
 SET @lim = (SELECT ROUND(COUNT(stationID) * ${SAT_DECIMAL}) FROM staStations WHERE regionID = ${regionid});
 SET @i = 0;

@@ -51,7 +51,8 @@ Things to verify after recent changes (0.8.7). Check off each item as you confir
 ## Market
 
 - [ ] **Market browser speed** — Open the market browser and navigate categories. Should be fast with no multi-second lag between clicks.
-- [ ] **Seeded regions** — Characters in Caldari (The Forge/Citadel), Amarr (Domain), Gallente (Essence), and Minmatar (Heimatar) space should all find buy/sell orders in the market.
+- [ ] **Seeded regions — empire** — Characters in Caldari (The Forge/Citadel/Lonetrek), Amarr (Domain/Kador/Kor-Azor), Gallente (Essence/Sinq Laison/Placid), and Minmatar (Heimatar/Metropolis/Molden Heath) space should all find buy/sell orders in the market.
+- [ ] **Seeded regions — NPC null-sec** — Stations in Curse, Stain, Venal, Great Wildlands, Syndicate, and Outer Ring should have market orders available.
 
 ---
 

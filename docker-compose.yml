@@ -29,14 +29,20 @@ services:
     container_name: db
     volumes:
       - db:/var/lib/mysql
-    # If you want to connect to the Database pick your host port to map it to, (host-port:container-port) below. 
+    # If you want to connect to the Database pick your host port to map it to, (host-port:container-port) below.
     #ports:
-    #  - "3306:3306"  
+    #  - "3306:3306"
     environment:
       - MARIADB_RANDOM_ROOT_PASSWORD=true
       - MARIADB_USER=evemu
       - MARIADB_PASSWORD=evemu
       - MARIADB_DATABASE=evemu
+    command:
+      - --innodb-buffer-pool-size=1G        # Default is 128MB — far too small for bulk seeding
+      - --innodb-log-file-size=256M         # Larger redo log handles big transactions without stalling
+      - --innodb-flush-log-at-trx-commit=2  # Flush every second instead of every commit (safe for dev)
+      - --max-allowed-packet=64M            # Prevent packet size errors on large queries
+      - --bulk-insert-buffer-size=64M       # Per-thread buffer for INSERT...SELECT
 
 volumes:
   db:

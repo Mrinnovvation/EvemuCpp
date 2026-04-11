@@ -9,11 +9,12 @@
 - Fix anomaly scanner visibility: DungeonMgr::MakeDungeon() always returned false causing all spawned sites to be invisible on scanner
 - Fix anomaly respawn: per-type counters (Grav, Mag, Radar, etc.) were never decremented on removal, permanently blocking new site spawns
 - [FEAT] Anomaly expiry and respawn: sites now expire after 2 hours, are cleaned up from space, and re-queued for automatic respawn
-- Fix warp deceleration client/server desync: removed erroneous Halt() call after SetSpeedFraction in WarpStop()
+- Fix warp 180-degree flip on exit: removed 10km target overshoot from WarpStop() and send CmdGotoDirection destiny packet on WARP→GOTO mode transition so the client exits warp animation cleanly instead of snapping/reversing
 - Fix orbit initial state: ships entering orbit no longer spend one tick in the wrong state causing a heading jerk
 - Fix iterator invalidation crash in TargetManager when module callbacks modified the module map during iteration
 - Fix market browser lag: cache market ask queries via ObjCacheService and add missing DB indexes
-- Docker: streamlined compose setup; market seed regions now cover all 4 race starting areas (The Forge, The Citadel, Domain, Heimatar, Essence)
+- Fix NPC damage hit notifications: flush destiny event queue immediately after queuing OnDamageMessage so hit numbers and combat log messages appear in real time, not delayed until the player's next input
+- Docker: expanded market seed regions to all 30 NPC-station regions — full empire space (Caldari, Amarr, Gallente, Minmatar) plus NPC null-sec (Curse, Stain, Venal, Great Wildlands, Syndicate, Outer Ring)
 
 *** 0.8.6 ***
 - [FEAT] MarketBot

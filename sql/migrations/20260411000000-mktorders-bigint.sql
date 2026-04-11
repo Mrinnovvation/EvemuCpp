@@ -3,5 +3,9 @@
 -- pre-allocates large ID blocks per concurrent session, exhausting the
 -- 4-billion INT UNSIGNED ceiling almost immediately across 6 parallel inserts.
 -- BIGINT UNSIGNED raises the ceiling to 18 quintillion.
+-- +migrate Up
 ALTER TABLE mktOrders
     MODIFY COLUMN orderID BIGINT UNSIGNED NOT NULL AUTO_INCREMENT;
+-- +migrate Down
+ALTER TABLE mktOrders
+    MODIFY COLUMN orderID INT UNSIGNED NOT NULL AUTO_INCREMENT;

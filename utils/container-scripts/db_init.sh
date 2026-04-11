@@ -53,7 +53,7 @@ echo "Running EVEDBTool..."
 
 if [ "$SEED_MARKET" == "TRUE" ]
 then
-    /src/utils/container-scripts/seed_market_parallel.sh
+    bash /src/utils/container-scripts/seed_market_parallel.sh
 fi
 
 echo "Loading all dungeons using EVEDBTool..."

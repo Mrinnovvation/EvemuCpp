@@ -1,3 +1,20 @@
+*** 0.8.7 ***
+- [FEAT] Wormhole scanning: added ProbeLauncher module class so players can fit and activate scan probe launchers to launch probes into space
+- [FEAT] Wormhole mass tracking: ships too large for a wormhole are blocked; each jump deducts ship mass from both the entrance and K162 exit
+- [FEAT] Wormhole collapse: wormholes now expire on a timer and collapse when mass is depleted, removing both entrance and exit from space
+- [FEAT] Wormhole visual state: size and age indicators update on client after each jump (Full → Reduced → Disrupted, Adolescent → Decaying → Closing)
+- [FEAT] Drone controls: implemented CmdEngage, CmdReturnHome, CmdReturnBay, CmdAbandonDrone, and CmdReconnectToDrones
+- [FEAT] Drones now orbit the ship immediately on launch
+- Fix drone Return/ReturnBay: drones now fly all the way to the ship and scoop correctly instead of hovering at orbit range
+- Fix anomaly scanner visibility: DungeonMgr::MakeDungeon() always returned false causing all spawned sites to be invisible on scanner
+- Fix anomaly respawn: per-type counters (Grav, Mag, Radar, etc.) were never decremented on removal, permanently blocking new site spawns
+- [FEAT] Anomaly expiry and respawn: sites now expire after 2 hours, are cleaned up from space, and re-queued for automatic respawn
+- Fix warp deceleration client/server desync: removed erroneous Halt() call after SetSpeedFraction in WarpStop()
+- Fix orbit initial state: ships entering orbit no longer spend one tick in the wrong state causing a heading jerk
+- Fix iterator invalidation crash in TargetManager when module callbacks modified the module map during iteration
+- Fix market browser lag: cache market ask queries via ObjCacheService and add missing DB indexes
+- Docker: streamlined compose setup; market seed regions now cover all 4 race starting areas (The Forge, The Citadel, Domain, Heimatar, Essence)
+
 *** 0.8.6 ***
 - [FEAT] MarketBot
 - Market system fixes

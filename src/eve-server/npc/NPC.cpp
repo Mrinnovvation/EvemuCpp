@@ -176,8 +176,11 @@ void NPC::UseShieldRecharge()
         m_AI->DisableRepTimers(true, false);
     }
 
-    // TODO: Need to send SpecialFX / amount update
-    UpdateDamage();
+    uint32 gfxID = m_self->HasAttribute(AttrGfxBoosterID) ? m_self->GetAttribute(AttrGfxBoosterID).get_uint32() : 0;
+    m_destiny->SendSpecialEffect(m_self->itemID(), m_self->itemID(), m_self->typeID(),
+                                 m_self->itemID(), 0, "effects.ShieldBoosting",
+                                 0, 1, 1, m_AI->GetShieldBoosterDuration(), 0, gfxID);
+    SendDamageStateChanged();
 }
 
 void NPC::UseArmorRepairer()
@@ -191,8 +194,11 @@ void NPC::UseArmorRepairer()
         m_AI->DisableRepTimers(false, true);
     }
 
-    // TODO: Need to send SpecialFX / amount update
-    UpdateDamage();
+    uint32 gfxID = m_self->HasAttribute(AttrGfxBoosterID) ? m_self->GetAttribute(AttrGfxBoosterID).get_uint32() : 0;
+    m_destiny->SendSpecialEffect(m_self->itemID(), m_self->itemID(), m_self->typeID(),
+                                 m_self->itemID(), 0, "effects.ArmorRepair",
+                                 0, 1, 1, m_AI->GetArmorRepairDuration(), 0, gfxID);
+    SendDamageStateChanged();
 }
 
 void NPC::UseHullRepairer()
@@ -206,9 +212,11 @@ void NPC::UseHullRepairer()
         m_AI->DisableRepTimers(false, false);
     }
 
-    // TODO: Need to send SpecialFX / amount update
-    // gfxBoosterID
-    UpdateDamage();
+    uint32 gfxID = m_self->HasAttribute(AttrGfxBoosterID) ? m_self->GetAttribute(AttrGfxBoosterID).get_uint32() : 0;
+    m_destiny->SendSpecialEffect(m_self->itemID(), m_self->itemID(), m_self->typeID(),
+                                 m_self->itemID(), 0, "effects.ArmorRepair",
+                                 0, 1, 1, m_AI->GetArmorRepairDuration(), 0, gfxID);
+    SendDamageStateChanged();
 }
 
 void NPC::MissileLaunched(Missile* pMissile)

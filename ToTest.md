@@ -51,8 +51,7 @@ Things to verify after recent changes (0.8.7). Check off each item as you confir
 ## Market
 
 - [ ] **Market browser speed** — Open the market browser and navigate categories. Should be fast with no multi-second lag between clicks.
-- [ ] **Seeded regions — empire** — Characters in Caldari (The Forge/Citadel/Lonetrek), Amarr (Domain/Kador/Kor-Azor), Gallente (Essence/Sinq Laison/Placid), and Minmatar (Heimatar/Metropolis/Molden Heath) space should all find buy/sell orders in the market.
-- [ ] **Seeded regions — NPC null-sec** — Stations in Curse, Stain, Venal, Great Wildlands, Syndicate, and Outer Ring should have market orders available.
+- [ ] **Seeded regions** — Characters in Caldari (The Forge/Citadel), Amarr (Domain), Gallente (Essence), and Minmatar (Heimatar) space should all find buy/sell orders in the market.
 
 ---
 
@@ -60,6 +59,20 @@ Things to verify after recent changes (0.8.7). Check off each item as you confir
 
 - [ ] **`/giveallskills me`** — Run the command, open the character sheet Skills tab. All skills should appear at level 5.
 - [ ] **Skills persist after restart** — After running `/giveallskills me`, restart the server and log back in. All skills should still be level 5 (not reset).
+
+---
+
+## Docking / Logout
+
+- [ ] **Dock at station** — Warp to a station and request dock. Ship should approach and complete the dock — not oscillate or wiggle in place.
+- [ ] **Position saved on logout** — Warp to a location in space, log out, log back in. Ship should appear at or near where you logged out, not the previous system/location.
+
+---
+
+## NPC Combat
+
+- [ ] **NPC repair visual** — Attack an NPC rat until its health drops. If it has repair modules (common on cruisers/battlecruisers), it should show a shield glow or armor repair beam animation on the NPC model.
+- [ ] **NPC health bar updates on repair** — With an NPC targeted, its health bar should visibly rise when it activates a repair module, not stay frozen at a low value.
 
 ---
 

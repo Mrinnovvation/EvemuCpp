@@ -3,8 +3,11 @@
 # Spawns one MySQL connection per region concurrently (up to MAX_PARALLEL at a time).
 # Replaces the sequential evedbtool seed command.
 #
-# Each region is pre-assigned an explicit orderID range so sessions never
-# compete for auto-increment values — eliminating ERROR 1467 entirely.
+# Strategy to eliminate lock contention:
+#   1. Drop all secondary indexes on mktOrders before seeding.
+#   2. Each region gets a pre-assigned orderID range — no auto-increment races.
+#   3. Parallel inserts only maintain the PRIMARY KEY; no shared index page locks.
+#   4. Rebuild all secondary indexes in one bulk operation after seeding.
 #
 # Environment variables (all inherited from docker-compose):
 #   SEED_REGIONS     — comma-separated region names
@@ -38,8 +41,35 @@ if [ "${existing:-0}" -gt 0 ]; then
     exit 0
 fi
 
+# ── Parse regions ─────────────────────────────────────────────────────────────
+IFS=',' read -r -a REGION_ARRAY <<< "${SEED_REGIONS:-}"
+
+if [ ${#REGION_ARRAY[@]} -eq 0 ]; then
+    echo "[SEED] SEED_REGIONS is empty, nothing to seed."
+    exit 0
+fi
+
+echo "[SEED] Seeding ${#REGION_ARRAY[@]} regions with up to ${MAX_PARALLEL} parallel connections..."
+echo "[SEED] Saturation: ${SATURATION}% (factor ${SAT_DECIMAL})"
+START=$(date +%s)
+
+# ── Drop secondary indexes to eliminate B-tree lock contention ───────────────
+# Parallel bulk inserts compete heavily for shared index pages. Dropping indexes
+# first means each session only maintains the PRIMARY KEY (non-overlapping ranges
+# = zero contention). We rebuild all indexes in one pass after seeding.
+echo "[SEED] Dropping secondary indexes for bulk load..."
+${MYSQL_BASE} 2>/dev/null <<'SQL'
+ALTER TABLE mktOrders
+    DROP INDEX IF EXISTS typeID,
+    DROP INDEX IF EXISTS regionID,
+    DROP INDEX IF EXISTS stationID,
+    DROP INDEX IF EXISTS orderID,
+    DROP INDEX IF EXISTS idx_solar_system,
+    DROP INDEX IF EXISTS idx_region_type_bid,
+    DROP INDEX IF EXISTS idx_region_bid;
+SQL
+
 # ── Per-region seed function (runs in a subshell via xargs) ──────────────────
-# Arguments: <region_name> <start_id>
 seed_region() {
     local region_name="$1"
     local start_id="$2"
@@ -57,8 +87,6 @@ seed_region() {
 
     echo "[SEED] Starting : ${region_name} (regionID=${regionid}, orderID base=${start_id})"
 
-    # Use explicit orderID values starting at start_id.
-    # This completely bypasses auto-increment so parallel sessions never conflict.
     mysql -h "${MARIADB_HOST}" -P "${MARIADB_PORT}" -u "${MARIADB_USER}" "${MARIADB_DATABASE}" \
         <<SQL
 SET @lim = (SELECT ROUND(COUNT(stationID) * ${SAT_DECIMAL}) FROM staStations WHERE regionID = ${regionid});
@@ -111,21 +139,7 @@ SQL
 export -f seed_region
 export MARIADB_HOST MARIADB_DATABASE MARIADB_USER MARIADB_PORT MYSQL_PWD SAT_DECIMAL
 
-# ── Parse regions ─────────────────────────────────────────────────────────────
-IFS=',' read -r -a REGION_ARRAY <<< "${SEED_REGIONS:-}"
-
-if [ ${#REGION_ARRAY[@]} -eq 0 ]; then
-    echo "[SEED] SEED_REGIONS is empty, nothing to seed."
-    exit 0
-fi
-
-echo "[SEED] Seeding ${#REGION_ARRAY[@]} regions with up to ${MAX_PARALLEL} parallel connections..."
-echo "[SEED] Saturation: ${SATURATION}% (factor ${SAT_DECIMAL})"
-START=$(date +%s)
-
 # ── Launch with pre-assigned ID ranges ────────────────────────────────────────
-# Emit one "region|start_id" line per region, then xargs -n1 fires one
-# bash subprocess per line (-P runs up to MAX_PARALLEL simultaneously).
 REGION_INDEX=0
 {
     for region in "${REGION_ARRAY[@]}"; do
@@ -141,7 +155,18 @@ REGION_INDEX=0
     seed_region "$region" "$start_id"
 ' _
 
-# ── Reset AUTO_INCREMENT to actual max so player orders get valid IDs ─────────
+# ── Rebuild indexes and reset AUTO_INCREMENT ──────────────────────────────────
+echo "[SEED] Rebuilding indexes..."
+${MYSQL_BASE} 2>/dev/null <<'SQL'
+ALTER TABLE mktOrders
+    ADD INDEX typeID              (typeID),
+    ADD INDEX regionID            (regionID),
+    ADD INDEX stationID           (stationID),
+    ADD INDEX idx_solar_system    (solarSystemID),
+    ADD INDEX idx_region_type_bid (regionID, typeID, bid),
+    ADD INDEX idx_region_bid      (regionID, bid);
+SQL
+
 echo "[SEED] Resetting AUTO_INCREMENT..."
 ${MYSQL_BASE} -e "
     SET @max_id = (SELECT COALESCE(MAX(orderID), 0) FROM mktOrders);

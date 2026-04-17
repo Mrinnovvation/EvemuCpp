@@ -124,23 +124,22 @@ echo "[SEED] Saturation: ${SATURATION}% (factor ${SAT_DECIMAL})"
 START=$(date +%s)
 
 # ── Launch with pre-assigned ID ranges ────────────────────────────────────────
-# Build a list of "region_name<TAB>start_id" pairs so xargs passes both args.
+# Emit one "region|start_id" line per region, then xargs -n1 fires one
+# bash subprocess per line (-P runs up to MAX_PARALLEL simultaneously).
 REGION_INDEX=0
-PAIRS=()
-for region in "${REGION_ARRAY[@]}"; do
-    region="${region#"${region%%[![:space:]]*}"}"
-    region="${region%"${region##*[![:space:]]}"}"
-    [ -z "$region" ] && continue
-    START_ID=$(( REGION_INDEX * IDS_PER_REGION + 1 ))
-    PAIRS+=("${region}	${START_ID}")   # tab-separated
-    REGION_INDEX=$(( REGION_INDEX + 1 ))
-done
-
-printf '%s\n' "${PAIRS[@]}" \
-    | xargs -d '\n' -P"${MAX_PARALLEL}" bash -c '
-        IFS="	" read -r region start_id <<< "$1"
-        seed_region "$region" "$start_id"
-    ' _
+{
+    for region in "${REGION_ARRAY[@]}"; do
+        region="${region#"${region%%[![:space:]]*}"}"
+        region="${region%"${region##*[![:space:]]}"}"
+        [ -z "$region" ] && continue
+        START_ID=$(( REGION_INDEX * IDS_PER_REGION + 1 ))
+        echo "${region}|${START_ID}"
+        REGION_INDEX=$(( REGION_INDEX + 1 ))
+    done
+} | xargs -d '\n' -n 1 -P"${MAX_PARALLEL}" bash -c '
+    IFS="|" read -r region start_id <<< "$1"
+    seed_region "$region" "$start_id"
+' _
 
 # ── Reset AUTO_INCREMENT to actual max so player orders get valid IDs ─────────
 echo "[SEED] Resetting AUTO_INCREMENT..."

@@ -91,6 +91,8 @@ seed_region() {
         <<SQL
 SET @lim = (SELECT ROUND(COUNT(stationID) * ${SAT_DECIMAL}) FROM staStations WHERE regionID = ${regionid});
 SET @i = 0;
+-- Current time as Windows FILETIME (100-ns intervals since 1601-01-01), matching evedbtool behaviour.
+SET @issued = (UNIX_TIMESTAMP() + 11644473600) * 10000000;
 
 CREATE TEMPORARY TABLE tStations (
     stationID     INT,
@@ -119,7 +121,7 @@ SELECT
     s.regionID,
     s.stationID,
     IF(t.basePrice = 0 OR s.security <= 0, 100, t.basePrice / s.security),
-    550, 550, 132478179209572976, 1, 250,
+    550, 550, @issued, 1, 250,
     s.solarSystemID, 1
 FROM   tStations s
 CROSS  JOIN invTypes t

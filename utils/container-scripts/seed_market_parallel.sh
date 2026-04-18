@@ -24,8 +24,9 @@ SATURATION="${SEED_SATURATION:-100}"
 MAX_PARALLEL="${SEED_PARALLEL:-4}"
 
 # IDs per region slot — must be >= max possible rows per region.
-# Worst case: ~100 stations × ~11000 items = ~1.1M. Use 2M to be safe.
-IDS_PER_REGION=2000000
+# Actual worst case: Lonetrek 461 stations × 11,635 items = 5.4M at 100% saturation.
+# Use 8M to cover all regions at any saturation level.
+IDS_PER_REGION=8000000
 
 # Use MYSQL_PWD to avoid the "password on command line" warning
 export MYSQL_PWD="${MARIADB_PASSWORD:-evemu}"

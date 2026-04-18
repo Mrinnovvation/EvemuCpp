@@ -7,12 +7,13 @@
 #   1. Drop all secondary indexes on mktOrders before seeding.
 #   2. Each region gets a pre-assigned orderID range — no auto-increment races.
 #   3. Parallel inserts only maintain the PRIMARY KEY; no shared index page locks.
-#   4. Rebuild all secondary indexes in one bulk operation after seeding.
+#   4. Each session sets innodb_lock_wait_timeout=600 and retries up to 3 times.
+#   5. Rebuild all secondary indexes in one bulk operation after seeding.
 #
 # Environment variables (all inherited from docker-compose):
 #   SEED_REGIONS     — comma-separated region names
 #   SEED_SATURATION  — integer 0-100 (default 100)
-#   SEED_PARALLEL    — max concurrent connections (default 6)
+#   SEED_PARALLEL    — max concurrent connections (default 4)
 #   MARIADB_*        — connection parameters
 
 MARIADB_HOST="${MARIADB_HOST:-db}"
@@ -20,7 +21,7 @@ MARIADB_DATABASE="${MARIADB_DATABASE:-evemu}"
 MARIADB_USER="${MARIADB_USER:-evemu}"
 MARIADB_PORT="${MARIADB_PORT:-3306}"
 SATURATION="${SEED_SATURATION:-100}"
-MAX_PARALLEL="${SEED_PARALLEL:-6}"
+MAX_PARALLEL="${SEED_PARALLEL:-4}"
 
 # IDs per region slot — must be >= max possible rows per region.
 # Worst case: ~100 stations × ~11000 items = ~1.1M. Use 2M to be safe.
@@ -58,7 +59,7 @@ START=$(date +%s)
 # first means each session only maintains the PRIMARY KEY (non-overlapping ranges
 # = zero contention). We rebuild all indexes in one pass after seeding.
 echo "[SEED] Dropping secondary indexes for bulk load..."
-${MYSQL_BASE} 2>/dev/null <<'SQL'
+${MYSQL_BASE} <<'SQL'
 ALTER TABLE mktOrders
     DROP INDEX IF EXISTS typeID,
     DROP INDEX IF EXISTS regionID,
@@ -73,6 +74,8 @@ SQL
 seed_region() {
     local region_name="$1"
     local start_id="$2"
+    local end_id=$(( start_id + IDS_PER_REGION - 1 ))
+    local attempt=0
 
     local safe_name="${region_name//\'/\'\'}"
 
@@ -87,12 +90,24 @@ seed_region() {
 
     echo "[SEED] Starting : ${region_name} (regionID=${regionid}, orderID base=${start_id})"
 
-    mysql -h "${MARIADB_HOST}" -P "${MARIADB_PORT}" -u "${MARIADB_USER}" "${MARIADB_DATABASE}" \
-        <<SQL
+    while [ $attempt -lt 3 ]; do
+        attempt=$(( attempt + 1 ))
+        if [ $attempt -gt 1 ]; then
+            local wait=$(( attempt * 15 ))
+            echo "[SEED] Retry ${attempt}/3  : ${region_name} (waiting ${wait}s...)"
+            sleep $wait
+        fi
+
+        mysql -h "${MARIADB_HOST}" -P "${MARIADB_PORT}" -u "${MARIADB_USER}" "${MARIADB_DATABASE}" \
+            <<SQL
+SET innodb_lock_wait_timeout = 600;
 SET @lim = (SELECT ROUND(COUNT(stationID) * ${SAT_DECIMAL}) FROM staStations WHERE regionID = ${regionid});
 SET @i = 0;
 -- Current time as Windows FILETIME (100-ns intervals since 1601-01-01), matching evedbtool behaviour.
 SET @issued = (UNIX_TIMESTAMP() + 11644473600) * 10000000;
+
+-- Remove any partial data from a previous failed attempt in this range.
+DELETE FROM mktOrders WHERE orderID BETWEEN ${start_id} AND ${end_id};
 
 CREATE TEMPORARY TABLE tStations (
     stationID     INT,
@@ -130,16 +145,19 @@ WHERE  t.published = 1
   AND  g.categoryID IN (4, 5, 6, 7, 8, 9, 16, 17, 18, 22, 23, 24, 25, 32, 34, 35, 39, 40, 41, 42, 43, 46);
 SQL
 
-    if [ $? -eq 0 ]; then
-        echo "[SEED] Done     : ${region_name}"
-    else
-        echo "[SEED] FAILED   : ${region_name}"
-        return 1
-    fi
+        if [ $? -eq 0 ]; then
+            echo "[SEED] Done     : ${region_name}"
+            return 0
+        fi
+        echo "[SEED] Attempt ${attempt} failed: ${region_name}"
+    done
+
+    echo "[SEED] FAILED   : ${region_name} (all 3 attempts exhausted)"
+    return 1
 }
 
 export -f seed_region
-export MARIADB_HOST MARIADB_DATABASE MARIADB_USER MARIADB_PORT MYSQL_PWD SAT_DECIMAL
+export MARIADB_HOST MARIADB_DATABASE MARIADB_USER MARIADB_PORT MYSQL_PWD SAT_DECIMAL IDS_PER_REGION
 
 # ── Launch with pre-assigned ID ranges ────────────────────────────────────────
 REGION_INDEX=0
@@ -159,7 +177,7 @@ REGION_INDEX=0
 
 # ── Rebuild indexes and reset AUTO_INCREMENT ──────────────────────────────────
 echo "[SEED] Rebuilding indexes..."
-${MYSQL_BASE} 2>/dev/null <<'SQL'
+${MYSQL_BASE} <<'SQL'
 ALTER TABLE mktOrders
     ADD INDEX typeID              (typeID),
     ADD INDEX regionID            (regionID),

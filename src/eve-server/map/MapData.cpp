@@ -137,51 +137,48 @@ void MapData::GetMissionDestination(Agent* pAgent, uint8 misionType, MissionOffe
 
             if ((destRange > 1) or (IsEven(MakeRandomInt(0, 100)))) {
                 // neighboring system
-                bool run = true;
-                uint8 count = 0;
                 std::vector<uint32> sysList;
                 auto itr = m_systemJumps.equal_range(systemID);
                 for (auto it = itr.first; it != itr.second; ++it)
                     sysList.push_back(it->second);
-                /** @todo not sure why this is empty, but have segfaults from empty vector. */
-                if (sysList.empty()) {
-                    StationData data = StationData();
-                    stDataMgr.GetStationData(pAgent->GetStationID(), data);
-                    offer.destinationOwnerID    = data.corporationID;
-                    offer.destinationSystemID   = data.systemID;
-                    offer.destinationTypeID     = data.typeID;
-                    return;
+
+                /*  Pick a neighbour at random, discarding each one we look at so we never test the
+                 *  same system twice.  The old loop kept drawing from the shrinking vector without
+                 *  checking whether anything was left, so a system whose neighbours all lack a
+                 *  station ended up calling MakeRandomInt(0, (size_t)0 - 1) and then at() with a
+                 *  garbage index.  When nothing suitable is one jump out we stay in the agent's own
+                 *  system, which always has at least the agent's station.
+                 */
+                while (!sysList.empty()) {
+                    uint32 randomIndex = MakeRandomInt(0, (sysList.size() -1));
+                    uint32 candidate = sysList.at(randomIndex);
+                    sysList.erase(sysList.begin() + randomIndex);
+                    if (!station or (sDataMgr.GetStationCount(candidate) > 0)) {
+                        systemID = candidate;
+                        break;
+                    }
                 }
 
-                while (run) {
-                    run = false;
-                    uint32 randomIndex = MakeRandomInt(0, (sysList.size() -1));
-                    systemID = sysList.at(randomIndex);
-                    if (station and (sDataMgr.GetStationCount(systemID) < 1)) {
-                        run = true;
-                        ++count;
-                    }
-                    if (run and (count > sysList.size())) {
-                        // problem....no station found within one jump
-                        offer.destinationID = 0;
-                        _log(AGENT__ERROR, "Agent::GetMissionDestination() - no station found within 1 jump." );
-                        return;
-                    }
-                    sysList.erase(sysList.begin() + randomIndex); // If we have searched a system already then do not try it again
-                }
+                if (systemID == pAgent->GetSystemID())
+                    _log(AGENT__WARNING, "MapData::GetMissionDestination() - no station found within 1 jump of system %u; staying local.", systemID);
             }
             if (station) {
                 std::vector<uint32> list;
                 sDataMgr.GetStationList(systemID, list);
-                if (list.size() < 2) {
-                    offer.destinationID = list.at(0);
-                } else {
-                    bool run = true;
-                    while (run) {
-                        offer.destinationID = list.at(MakeRandomInt(0, (list.size() -1)));
-                        if (offer.destinationID != pAgent->GetStationID())
-                            run = false;
+                //  send the player somewhere other than the agent's own desk when we can, but fall
+                //  back to it rather than indexing an empty list.
+                for (auto it = list.begin(); it != list.end(); ) {
+                    if (*it == pAgent->GetStationID()) {
+                        it = list.erase(it);
+                    } else {
+                        ++it;
                     }
+                }
+                if (list.empty()) {
+                    _log(AGENT__WARNING, "MapData::GetMissionDestination() - system %u has no station other than the agent's; using it as the destination.", systemID);
+                    offer.destinationID = pAgent->GetStationID();
+                } else {
+                    offer.destinationID = list.at(MakeRandomInt(0, (list.size() -1)));
                 }
             } else if (ship) {
                 ;  // code here for agent in ship

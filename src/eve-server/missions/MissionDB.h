@@ -20,7 +20,7 @@ class MissionDB
 {
 public:
 
-    static void CreateOfferID(MissionOffer& data);
+    static bool CreateOfferID(MissionOffer& data);
     static void LoadOpenOffers(DBQueryResult& res);
     static void LoadMiningData(DBQueryResult& res);
     static void LoadMissionData(DBQueryResult& res);

@@ -114,6 +114,7 @@
 #include "fleet/FleetService.h"
 // imageserver services
 #include "apiserver/APIServer.h"
+#include "espserver/ESPServer.h"
 #include "imageserver/ImageServer.h"
 // development index service
 #include "system/IndexManager.h"
@@ -637,6 +638,15 @@ int main( int argc, char* argv[] )
         sLog.Cyan("       ServerInit", "API Server disabled (net/apiServerEnabled)");
     }
 
+    // start up the ESP (EVE Server Pages) server, if the operator enabled it
+    if (sConfig.net.espServerEnabled) {
+        sLog.Green("       ServerInit", "Starting ESP Server");
+        sESPServer.Run();
+        Sleep(250);
+    } else {
+        sLog.Cyan("       ServerInit", "ESP Server disabled (net/espServerEnabled)");
+    }
+
     sThread.Initialize();
     sLog.Green( "        Threading", "Starting Main Loop thread with ID 0x%X", std::this_thread::get_id() );
     //sThread.AddThread(pthread_self());
@@ -954,6 +964,11 @@ int main( int argc, char* argv[] )
         sAPIServer.Stop();
         sLog.Warning("   ServerShutdown", "API Server stopped." );
     }
+    /* stop ESP Server */
+    if (sConfig.net.espServerEnabled) {
+        sESPServer.Stop();
+        sLog.Warning("   ServerShutdown", "ESP Server stopped." );
+    }
     /* Close the MarketMgr */
     sMktMgr.Close();
     /* Close the bulk data manager */
@@ -1064,6 +1079,11 @@ static void CleanUp() {
     if (sConfig.net.apiServerEnabled) {
         sAPIServer.Stop();
         sLog.Warning("   ServerShutdown", "API Server stopped." );
+    }
+    /* stop ESP Server */
+    if (sConfig.net.espServerEnabled) {
+        sESPServer.Stop();
+        sLog.Warning("   ServerShutdown", "ESP Server stopped." );
     }
     /* Close the MarketMgr */
     sLog.Warning("   ServerShutdown", "Shutting down Market Manager." );

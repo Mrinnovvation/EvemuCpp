@@ -25,6 +25,8 @@
 
 #include "eve-server.h"
 
+#include "apiserver/APIDBUtil.h"
+
 #include "apiserver/APICharacterDB.h"
 #include "inventory/AttributeEnum.h"
 
@@ -58,50 +60,52 @@ bool APICharacterDB::GetCharacterSkillsTrained(uint32 characterID, std::vector<s
         return false;
     }
 
-    uint32 prevTypeID = 0;
-    bool gotSkillPoints = false;
-    bool gotSkillLevel = false;
+    /* One row per (skill item, attribute), so gather each skill's attributes before
+     * emitting it. The four output lists are indexed in lockstep by the caller, so
+     * every skill must contribute exactly one entry to each of them.
+     */
+    struct SkillRow { std::string points; std::string level; std::string published; };
+    std::vector<uint32> skillOrder;                 // preserves first-seen order
+    std::map<uint32, SkillRow> skills;
+
     DBResultRow row;
-    std::map<std::string, std::string> charInfo;
-    while( res.GetRow( row ) )
+    while ( res.GetRow( row ) )
     {
-        if ( prevTypeID != row.GetUInt(1) )
+        const uint32 typeID = row.GetUInt(1);
+
+        std::map<uint32, SkillRow>::iterator itr = skills.find( typeID );
+        if ( itr == skills.end() )
         {
-            if ( (!gotSkillPoints) && (prevTypeID != 0) )
-                skillPointsList.push_back( std::string("0") );
-
-            if ( (!gotSkillLevel) && (prevTypeID != 0) )
-                skillLevelList.push_back( std::string("0") );
-
-            gotSkillPoints = false;
-            gotSkillLevel = false;
-            skillTypeIDList.push_back( std::string(row.GetText(1)) );
-			skillPublishedList.push_back( std::string(itoa(row.GetBool(6) ? 1 : 0)) );
+            SkillRow fresh;
+            fresh.points = "0";
+            fresh.level = "0";
+            fresh.published = std::string(itoa(row.GetBool(6) ? 1 : 0));
+            itr = skills.insert( std::make_pair( typeID, fresh ) ).first;
+            skillOrder.push_back( typeID );
         }
 
-        prevTypeID = row.GetUInt(1);
+        // A dogma value lives in valueInt or valueFloat, never both.
+        std::string value;
+        if ( !row.IsNull(3) )
+            value = row.GetText(3);
+        else if ( !row.IsNull(4) )
+            value = std::string(itoa((uint32)(row.GetFloat(4))));
+        else
+            continue;
 
         if ( row.GetUInt(2) == AttrSkillPoints )
-        {
-            gotSkillPoints = true;
-            if ( row.GetText(3) == NULL )
-                // Get value from 'entity_attributes' table 'valueFloat' column since 'valueInt' contains 'NULL'
-                skillPointsList.push_back( std::string((row.GetText(4) == NULL ? "0.0" : itoa((uint32)(row.GetFloat(4))))) );
-            else
-                // Get value from 'entity_attributes' table 'valueInt' column since it does not contain 'NULL'
-                skillPointsList.push_back( std::string((row.GetText(3) == NULL ? "0" : row.GetText(3))) );
-        }
+            itr->second.points = value;
+        else if ( row.GetUInt(2) == AttrSkillLevel )
+            itr->second.level = value;
+    }
 
-        if ( row.GetUInt(2) == AttrSkillLevel )
-        {
-            gotSkillLevel = true;
-            if ( row.GetText(3) == NULL )
-                // Get value from 'entity_attributes' table 'valueFloat' column since 'valueInt' contains 'NULL'
-                skillLevelList.push_back( std::string((row.GetText(4) == NULL ? "0.0" : itoa((uint32)(row.GetFloat(4))))) );
-            else
-                // Get value from 'entity_attributes' table 'valueInt' column since it does not contain 'NULL'
-                skillLevelList.push_back( std::string((row.GetText(3) == NULL ? "0" : row.GetText(3))) );
-        }
+    for ( size_t i = 0; i < skillOrder.size(); ++i )
+    {
+        const SkillRow& skill = skills.find( skillOrder.at(i) )->second;
+        skillTypeIDList.push_back( std::string(itoa(skillOrder.at(i))) );
+        skillPointsList.push_back( skill.points );
+        skillLevelList.push_back( skill.level );
+        skillPublishedList.push_back( skill.published );
     }
 
     return true;
@@ -114,28 +118,27 @@ bool APICharacterDB::GetCharacterInfo(uint32 characterID, std::vector<std::strin
     // Get list of characters and their corporation info from the accountID:
     if ( !sDatabase.RunQuery(res,
         " SELECT "
-        "  character_.balance, "
-        "  character_.skillPoints, "
-        "  character_.corporationID, "
-        "  character_.corpRole, "
-        "  character_.rolesAtAll, "
-        "  character_.rolesAtBase, "
-        "  character_.rolesAtHQ, "
-        "  character_.rolesAtOther, "
-        "  character_.startDateTime, "
-        "  character_.gender, "
+        "  chrCharacters.balance, "
+        "  chrCharacters.skillPoints, "
+        "  chrCharacters.corporationID, "
+        "  chrCharacters.corpRole, "
+        "  chrCharacters.rolesAtAll, "
+        "  chrCharacters.rolesAtBase, "
+        "  chrCharacters.rolesAtHQ, "
+        "  chrCharacters.rolesAtOther, "
+        "  chrCharacters.startDateTime, "
+        "  chrCharacters.gender, "
         "  chrAncestries.ancestryName, "
         "  chrBloodlines.bloodlineName, "
         "  chrRaces.raceName, "
-        "  entity.itemName, "
-        "  corporation.corporationName "
-        " FROM character_ "
-        "  LEFT JOIN chrAncestries ON character_.ancestryID = chrAncestries.ancestryID "
+        "  chrCharacters.characterName, "
+        "  crpCorporation.corporationName "
+        " FROM chrCharacters "
+        "  LEFT JOIN chrAncestries ON chrCharacters.ancestryID = chrAncestries.ancestryID "
         "  LEFT JOIN chrBloodlines ON chrAncestries.bloodlineID = chrBloodlines.bloodlineID "
         "  LEFT JOIN chrRaces ON chrBloodlines.raceID = chrRaces.raceID "
-        "  LEFT JOIN entity ON entity.itemID = character_.characterID "
-        "  LEFT JOIN corporation ON corporation.corporationID = character_.corporationID "
-        " WHERE character_.characterID = %u ", characterID ))
+        "  LEFT JOIN crpCorporation ON crpCorporation.corporationID = chrCharacters.corporationID "
+        " WHERE chrCharacters.characterID = %u ", characterID ))
     {
         sLog.Error( "APIAccountDB::GetCharacterSkillsTrained()", "Cannot find characterID %u", characterID );
         return false;
@@ -148,21 +151,21 @@ bool APICharacterDB::GetCharacterInfo(uint32 characterID, std::vector<std::strin
         return false;
     }
 
-    charInfoList.push_back( std::string(row.GetText(0)) );      // 0. Balance
-    charInfoList.push_back( std::string(row.GetText(1)) );      // 1. Skill Points
-    charInfoList.push_back( std::string(row.GetText(2)) );     // 2. corporationID
-    charInfoList.push_back( std::string(row.GetText(3)) );     // 3. corp Role
-    charInfoList.push_back( std::string(row.GetText(4)) );     // 4. roles At All
-    charInfoList.push_back( std::string(row.GetText(5)) );     // 5. roles At Base
-    charInfoList.push_back( std::string(row.GetText(6)) );     // 6. roles At HQ
-    charInfoList.push_back( std::string(row.GetText(7)) );     // 7. roles At Other
-    charInfoList.push_back( std::string(row.GetText(8)) );     // 8. birthday
-    charInfoList.push_back( std::string(row.GetText(10)) );     // 9. ancestry Name
-    charInfoList.push_back( std::string(row.GetText(11)) );     // 10. bloodline Name
-    charInfoList.push_back( std::string(row.GetText(12)) );     // 11. race Name
-    charInfoList.push_back( std::string(row.GetText(13)) );     // 12. char Name
-    charInfoList.push_back( std::string(row.GetText(14)) );     // 13. corp Name
-    charInfoList.push_back( std::string(row.GetText(9)) );     // 14. gender (0 = female, 1 = male)
+    charInfoList.push_back( APIText(row, 0) );      // 0. Balance
+    charInfoList.push_back( APIText(row, 1) );      // 1. Skill Points
+    charInfoList.push_back( APIText(row, 2) );     // 2. corporationID
+    charInfoList.push_back( APIText(row, 3) );     // 3. corp Role
+    charInfoList.push_back( APIText(row, 4) );     // 4. roles At All
+    charInfoList.push_back( APIText(row, 5) );     // 5. roles At Base
+    charInfoList.push_back( APIText(row, 6) );     // 6. roles At HQ
+    charInfoList.push_back( APIText(row, 7) );     // 7. roles At Other
+    charInfoList.push_back( APIText(row, 8) );     // 8. birthday
+    charInfoList.push_back( APIText(row, 10) );     // 9. ancestry Name
+    charInfoList.push_back( APIText(row, 11) );     // 10. bloodline Name
+    charInfoList.push_back( APIText(row, 12) );     // 11. race Name
+    charInfoList.push_back( APIText(row, 13) );     // 12. char Name
+    charInfoList.push_back( APIText(row, 14) );     // 13. corp Name
+    charInfoList.push_back( APIText(row, 9) );     // 14. gender (0 = female, 1 = male)
 
     return true;
 }
@@ -174,12 +177,12 @@ bool APICharacterDB::GetCharacterAttributes(uint32 characterID, std::map<std::st
     // Get list of characters and their corporation info from the accountID:
     if ( !sDatabase.RunQuery(res,
         " SELECT "
-        "  itemID, "
+        "  charID, "
         "  attributeID, "
         "  valueInt, "
         "  valueFloat "
-        " FROM entity_attributes "
-        " WHERE itemID = %u ", characterID ))
+        " FROM chrCharacterAttributes "
+        " WHERE charID = %u ", characterID ))
     {
         sLog.Error( "APIAccountDB::GetCharacterAttributes()", "Cannot find characterID %u", characterID );
         return false;
@@ -294,10 +297,10 @@ bool APICharacterDB::GetCharacterSkillQueue(uint32 characterID, std::vector<std:
         if ( prev_orderIndex != row.GetUInt(1) )
         {
             prev_orderIndex = row.GetUInt(1);
-            orderList.push_back( std::string(row.GetText(1)) );
-            typeIdList.push_back( std::string(row.GetText(2)) );
-            levelList.push_back( std::string(row.GetText(3)) );
-            skillIdList.push_back( std::string(row.GetText(7)) );
+            orderList.push_back( APIText(row, 1) );
+            typeIdList.push_back( APIText(row, 2) );
+            levelList.push_back( APIText(row, 3) );
+            skillIdList.push_back( APIText(row, 7) );
 
             if ( row.GetText(8) == NULL )
                 // Get value from the query's 'valueFloat' column since 'valueInt' contains 'NULL'
@@ -385,7 +388,7 @@ bool APIServiceDB::GetAccountIdFromUsername(std::string username, std::string * 
         return false;
     }
 
-    *accountID = row.GetText(0);        // Grab accountID from the retrieved row from the 'account' table
+    *accountID = APIText(row, 0);        // Grab accountID from the retrieved row from the 'account' table
     return true;
 }
 
@@ -413,8 +416,8 @@ bool APIServiceDB::GetApiAccountInfoUsingAccountID(std::string accountID, uint32
     }
 
     *userID = row.GetUInt(0);            // Grab userID from retrieved row from the 'accountApi' table
-    *apiFullKey = row.GetText(1);        // Grab Full API Key from retrieved row from the 'accountApi' table
-    *apiLimitedKey = row.GetText(2);    // Grab Limited API Key from retrieved row from the 'accountApi' table
+    *apiFullKey = APIText(row, 1);        // Grab Full API Key from retrieved row from the 'accountApi' table
+    *apiLimitedKey = APIText(row, 2);    // Grab Limited API Key from retrieved row from the 'accountApi' table
     *apiRole = row.GetUInt(3);            // Grab API Role from retrieved row from the 'accountApi' table
     return true;
 }
@@ -441,8 +444,8 @@ bool APIServiceDB::GetApiAccountInfoUsingUserID(std::string userID, std::string 
         return false;
     }
 
-    *apiFullKey = row.GetText(0);        // Grab Full API Key from retrieved row from the 'accountApi' table
-    *apiLimitedKey = row.GetText(1);    // Grab Limited API Key from retrieved row from the 'accountApi' table
+    *apiFullKey = APIText(row, 0);        // Grab Full API Key from retrieved row from the 'accountApi' table
+    *apiLimitedKey = APIText(row, 1);    // Grab Limited API Key from retrieved row from the 'accountApi' table
     *apiRole = row.GetUInt(2);            // Grab API Role from retrieved row from the 'accountApi' table
     return true;
 }

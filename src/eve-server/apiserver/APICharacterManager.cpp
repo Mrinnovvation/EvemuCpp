@@ -37,6 +37,16 @@ APICharacterManager::APICharacterManager()
  * character's current value for that attribute. Returns false when the character
  * has no such attribute, rather than dereferencing map::end().
  */
+/* Reads one attribute out of the map APICharacterDB fills in, keyed by the attribute
+ * ID rendered as text. Returns "0" when the character has no row for that attribute
+ * rather than dereferencing map::end().
+ */
+std::string APICharacterManager::_AttributeText(const std::map<std::string, std::string> & attributes, uint32 attributeID)
+{
+    std::map<std::string, std::string>::const_iterator itr = attributes.find( std::string(itoa(attributeID)) );
+    return ((itr == attributes.end()) ? std::string("0") : itr->second);
+}
+
 bool APICharacterManager::_LookupLearningAttribute(const std::map<uint32, uint32> & attributes,
                                                    const std::string & attributeIDText, uint32 * value)
 {
@@ -96,9 +106,17 @@ std::shared_ptr<std::string> APICharacterManager::_CharacterSheet(const APIComma
     m_charDB.GetCharacterSkillsTrained( characterID, skillTypeIDList, skillPointsList, skillLevelList, skillPublishedList );
 
     std::vector<std::string> charInfoList;
-    m_charDB.GetCharacterInfo( characterID, charInfoList );
-
     std::map<std::string, std::string> charAttributes;
+
+    /* The XML below indexes charInfoList positionally, so a failed lookup has to stop
+     * the call here rather than reaching .at() on an empty vector.
+     */
+    if ( !m_charDB.GetCharacterInfo( characterID, charInfoList ) or (charInfoList.size() < 15) )
+    {
+        sLog.Error( "APICharacterManager::_CharacterSheet()", "Character info lookup failed for characterID %u", characterID );
+        return BuildErrorXMLResponse( "105", "Invalid characterID." );
+    }
+
     m_charDB.GetCharacterAttributes( characterID, charAttributes );
 
     sLog.Error( "APICharacterManager::_CharacterSheet()", "INFO: Sections Currently hard-coded: attributeEnhancers, certificates, corporation roles" );
@@ -166,11 +184,11 @@ std::shared_ptr<std::string> APICharacterManager::_CharacterSheet(const APIComma
             // Attributes
             _BuildXMLTag( "attributes" );
             {
-                _BuildSingleXMLTag( "intelligence", charAttributes.find( std::string(itoa(AttrIntelligence)))->second );
-                _BuildSingleXMLTag( "memory", charAttributes.find( std::string(itoa(AttrMemory)))->second );
-                _BuildSingleXMLTag( "charisma", charAttributes.find( std::string(itoa(AttrCharisma)))->second );
-                _BuildSingleXMLTag( "perception", charAttributes.find( std::string(itoa(AttrPerception)))->second );
-                _BuildSingleXMLTag( "willpower", charAttributes.find( std::string(itoa(AttrWillpower)))->second );
+                _BuildSingleXMLTag( "intelligence", _AttributeText( charAttributes, AttrIntelligence ) );
+                _BuildSingleXMLTag( "memory",       _AttributeText( charAttributes, AttrMemory ) );
+                _BuildSingleXMLTag( "charisma",     _AttributeText( charAttributes, AttrCharisma ) );
+                _BuildSingleXMLTag( "perception",   _AttributeText( charAttributes, AttrPerception ) );
+                _BuildSingleXMLTag( "willpower",    _AttributeText( charAttributes, AttrWillpower ) );
             }
             _CloseXMLTag(); // close tag "attributes"
 
@@ -242,11 +260,11 @@ std::shared_ptr<std::string> APICharacterManager::_SkillQueue(const APICommandCa
     std::map<std::string, std::string> charLearningAttributesString;
     std::map<uint32, uint32> charLearningAttributes;
     m_charDB.GetCharacterAttributes( characterID, charLearningAttributesString );
-    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrMemory, ((uint32)(atoi(charLearningAttributesString.find(std::string(itoa(AttrMemory)))->second.c_str()))) ));
-    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrIntelligence, ((uint32)(atoi(charLearningAttributesString.find(std::string(itoa(AttrIntelligence)))->second.c_str()))) ));
-    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrCharisma, ((uint32)(atoi(charLearningAttributesString.find(std::string(itoa(AttrCharisma)))->second.c_str()))) ));
-    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrWillpower, ((uint32)(atoi(charLearningAttributesString.find(std::string(itoa(AttrWillpower)))->second.c_str()))) ));
-    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrPerception, ((uint32)(atoi(charLearningAttributesString.find(std::string(itoa(AttrPerception)))->second.c_str()))) ));
+    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrMemory, (uint32)atoi( _AttributeText( charLearningAttributesString, AttrMemory ).c_str() ) ));
+    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrIntelligence, (uint32)atoi( _AttributeText( charLearningAttributesString, AttrIntelligence ).c_str() ) ));
+    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrCharisma, (uint32)atoi( _AttributeText( charLearningAttributesString, AttrCharisma ).c_str() ) ));
+    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrWillpower, (uint32)atoi( _AttributeText( charLearningAttributesString, AttrWillpower ).c_str() ) ));
+    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrPerception, (uint32)atoi( _AttributeText( charLearningAttributesString, AttrPerception ).c_str() ) ));
 
     std::vector<std::string> queueOrderList;
     std::vector<std::string> queueSkillTypeIdList;
@@ -356,11 +374,11 @@ std::shared_ptr<std::string> APICharacterManager::_SkillInTraining(const APIComm
     std::map<std::string, std::string> charLearningAttributesString;
     std::map<uint32, uint32> charLearningAttributes;
     m_charDB.GetCharacterAttributes( characterID, charLearningAttributesString );
-    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrMemory, ((uint32)(atoi(charLearningAttributesString.find(std::string(itoa(AttrMemory)))->second.c_str()))) ));
-    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrIntelligence, ((uint32)(atoi(charLearningAttributesString.find(std::string(itoa(AttrIntelligence)))->second.c_str()))) ));
-    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrCharisma, ((uint32)(atoi(charLearningAttributesString.find(std::string(itoa(AttrCharisma)))->second.c_str()))) ));
-    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrWillpower, ((uint32)(atoi(charLearningAttributesString.find(std::string(itoa(AttrWillpower)))->second.c_str()))) ));
-    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrPerception, ((uint32)(atoi(charLearningAttributesString.find(std::string(itoa(AttrPerception)))->second.c_str()))) ));
+    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrMemory, (uint32)atoi( _AttributeText( charLearningAttributesString, AttrMemory ).c_str() ) ));
+    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrIntelligence, (uint32)atoi( _AttributeText( charLearningAttributesString, AttrIntelligence ).c_str() ) ));
+    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrCharisma, (uint32)atoi( _AttributeText( charLearningAttributesString, AttrCharisma ).c_str() ) ));
+    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrWillpower, (uint32)atoi( _AttributeText( charLearningAttributesString, AttrWillpower ).c_str() ) ));
+    charLearningAttributes.insert( std::pair<uint32, uint32>( AttrPerception, (uint32)atoi( _AttributeText( charLearningAttributesString, AttrPerception ).c_str() ) ));
 
     std::vector<std::string> queueOrderList;
     std::vector<std::string> queueSkillTypeIdList;

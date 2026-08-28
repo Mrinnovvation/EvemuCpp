@@ -57,6 +57,8 @@ protected:
     std::shared_ptr<std::string> _SkillQueue(const APICommandCall * pAPICommandCall);
     std::shared_ptr<std::string> _SkillInTraining(const APICommandCall * pAPICommandCall);
 
+    static std::string _AttributeText(const std::map<std::string, std::string> & attributes, uint32 attributeID);
+
     static bool _LookupLearningAttribute(const std::map<uint32, uint32> & attributes,
                                          const std::string & attributeIDText, uint32 * value);
 

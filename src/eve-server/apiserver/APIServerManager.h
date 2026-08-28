@@ -44,13 +44,13 @@ class APIServerManager
 : public APIServiceManager
 {
 public:
-    APIServerManager(const PyServiceMgr &services);
+    APIServerManager();
 
     // Common call shared to all derived classes called via polymorphism
-    std::tr1::shared_ptr<std::string> ProcessCall(const APICommandCall * pAPICommandCall);
+    std::shared_ptr<std::string> ProcessCall(const APICommandCall * pAPICommandCall);
 
 protected:
-    std::tr1::shared_ptr<std::string> _ServerStatus(const APICommandCall * pAPICommandCall);
+    std::shared_ptr<std::string> _ServerStatus(const APICommandCall * pAPICommandCall);
 
 };
 

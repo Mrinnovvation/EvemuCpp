@@ -284,6 +284,20 @@ boolean can use either 0/1 OR true/false.
         <!-- Set to IP address which CLIENT can use to access port 26001 on server. -->
         <imageServer>127.0.0.1</imageServer>
         <imageServerPort>26001</imageServerPort>
+
+        <!-- EVE XML API server (api.eveonline.com work-alike). Disabled by default. -->
+        <apiServerEnabled>false</apiServerEnabled>
+        <apiServer>127.0.0.1</apiServer>
+        <apiServerPort>26002</apiServerPort>
+
+        <!-- ESP (EVE Server Pages): the GM/game-data web pages the client's
+             right-click menu links to. The client builds the URL as
+             "<server ip>:50001", so espServerPort must stay 50001 for those
+             links to resolve. Disabled by default: these pages expose GM
+             tooling, so only enable on a server you control. -->
+        <espServerEnabled>false</espServerEnabled>
+        <espServer>127.0.0.1</espServer>
+        <espServerPort>50001</espServerPort>
     </net>
 
 </eve-server>

@@ -26,10 +26,40 @@
 #ifndef __APISERVICEDB_H_INCL__
 #define __APISERVICEDB_H_INCL__
 
+#include "eve-common.h"
+#include "auth/PasswordModule.h"
+
 class APIServiceDB
 {
 public:
     APIServiceDB();
+
+    /**
+     * @brief Verifies an account name / password pair against the 'account' table.
+     *
+     * Read-only: unlike ServiceDB::GetAccountInformation() this never auto-creates
+     * an account. Accepts either the plaintext password or the SHA-1 login hash.
+     *
+     * @param[in]  username  Account name supplied by the API caller.
+     * @param[in]  password  Plaintext password supplied by the API caller.
+     * @param[out] accountID Receives the account's ID on success.
+     * @param[out] role      Receives the account's server role mask on success.
+     *
+     * @retval true  The credentials are valid and the account is not banned.
+     * @retval false No such account, wrong password, or the account is banned.
+     */
+    /**
+     * @brief Looks up which account owns a character.
+     *
+     * @param[in]  characterID The character to look up.
+     * @param[out] accountID   Receives the owning account's ID.
+     *
+     * @retval true  The character exists and is owned by a player account.
+     * @retval false No such character, or the character has no owning account.
+     */
+    bool GetAccountIDForCharacter(uint32 characterID, uint32 * accountID);
+
+    bool AuthenticateAccount(std::string username, std::string password, uint32 * accountID, int64 * role);
 
     /**
      * @brief ?

@@ -27,15 +27,14 @@
 
 #include "apiserver/APIServiceManager.h"
 
-APIServiceManager::APIServiceManager(const PyServiceMgr &services)
-: m_services(services)
+APIServiceManager::APIServiceManager()
 {
     _pXmlDocOuterTag = NULL;
     _pXmlElementStack = NULL;
     _CurrentRowSetColumnString = "";
 }
 
-std::tr1::shared_ptr<std::string> APIServiceManager::ProcessCall(const APICommandCall * pAPICommandCall)
+std::shared_ptr<std::string> APIServiceManager::ProcessCall(const APICommandCall * pAPICommandCall)
 {
     sLog.Debug("APIServiceManager::ProcessCall()", "EVEmu API - Default Service Manager");
 
@@ -128,7 +127,7 @@ std::tr1::shared_ptr<std::string> APIServiceManager::ProcessCall(const APIComman
     return _GetXMLDocumentString();
 }
 
-std::tr1::shared_ptr<std::string> APIServiceManager::BuildErrorXMLResponse(std::string errorCode, std::string errorMessage)
+std::shared_ptr<std::string> APIServiceManager::BuildErrorXMLResponse(std::string errorCode, std::string errorMessage)
 {
     _BuildXMLHeader();
     {
@@ -139,24 +138,74 @@ std::tr1::shared_ptr<std::string> APIServiceManager::BuildErrorXMLResponse(std::
     return _GetXMLDocumentString();
 }
 
+std::shared_ptr<std::string> APIServiceManager::_ValidateAPIQuery(const APICommandCall * pAPICommandCall,
+                                                                  uint32 keyType, uint32 * accountID)
+{
+    /* Every data-bearing API call must carry a userID + apiKey pair that resolves to a
+     * real account. Presence of the parameters is not enough -- the key has to match.
+     */
+    if ( pAPICommandCall->find( "userid" ) == pAPICommandCall->end() )
+        return BuildErrorXMLResponse( "106", "Must provide userID parameter for authentication." );
+
+    if ( pAPICommandCall->find( "apikey" ) == pAPICommandCall->end() )
+        return BuildErrorXMLResponse( "203", "Authentication failure." );
+
+    const std::string userID = pAPICommandCall->find( "userid" )->second;
+    const std::string apiKey = pAPICommandCall->find( "apikey" )->second;
+
+    const bool ok = (keyType == EVEAPI::KeyType::Full)
+                        ? _AuthenticateFullAPIQuery( userID, apiKey )
+                        : _AuthenticateLimitedAPIQuery( userID, apiKey );
+
+    if ( !ok )
+    {
+        sLog.Error( "APIServiceManager::_ValidateAPIQuery()", "Authentication failure for userID '%s'", userID.c_str() );
+        return BuildErrorXMLResponse( "203", "Authentication failure." );
+    }
+
+    if ( accountID != nullptr )
+    {
+        if ( !m_db.GetAccountIdFromUserID( userID, accountID ) )
+            return BuildErrorXMLResponse( "203", "Authentication failure." );
+    }
+
+    return std::shared_ptr<std::string>();      // null == authenticated
+}
+
+std::shared_ptr<std::string> APIServiceManager::_ValidateCharacterAccess(const APICommandCall * pAPICommandCall,
+                                                                        uint32 keyType, uint32 * characterID)
+{
+    uint32 accountID = 0;
+    std::shared_ptr<std::string> error = _ValidateAPIQuery( pAPICommandCall, keyType, &accountID );
+    if ( error )
+        return error;
+
+    if ( pAPICommandCall->find( "characterid" ) == pAPICommandCall->end() )
+        return BuildErrorXMLResponse( "105", "Invalid characterID." );
+
+    const uint32 requested = atoi( pAPICommandCall->find( "characterid" )->second.c_str() );
+
+    uint32 ownerAccountID = 0;
+    if ( !m_db.GetAccountIDForCharacter( requested, &ownerAccountID ) )
+        return BuildErrorXMLResponse( "105", "Invalid characterID." );
+
+    // A key only grants access to characters on its own account.
+    if ( ownerAccountID != accountID )
+    {
+        sLog.Error( "APIServiceManager::_ValidateCharacterAccess()",
+            "Account %u requested characterID %u which belongs to account %u", accountID, requested, ownerAccountID );
+        return BuildErrorXMLResponse( "209", "Owner of characterID is not a member of the account." );
+    }
+
+    *characterID = requested;
+    return std::shared_ptr<std::string>();      // null == authorised
+}
+
 bool APIServiceManager::_AuthenticateUserNamePassword(std::string username, std::string password)
 {
-    // Query account info
-    AccountInfo account_info;
-    if ( !services().serviceDB().GetAccountInformation(
-            username.c_str(), 
-			password.c_str(),
-			account_info ) )
-        return false;
-
-    // Compute pass hash
-    std::string passHash;
-    if ( !PasswordModule::GeneratePassHash(
-            username, password, passHash ) )
-        return false;
-
-    // Compare the hashes
-    return passHash == account_info.hash;
+    uint32 accountID = 0;
+    int64 role = 0;
+    return m_db.AuthenticateAccount( username, password, &accountID, &role );
 }
 
 bool APIServiceManager::_AuthenticateFullAPIQuery(std::string userID, std::string apiKey)
@@ -165,12 +214,15 @@ bool APIServiceManager::_AuthenticateFullAPIQuery(std::string userID, std::strin
     std::string apiLimitedKey;
     uint32 apiRole;
 
-    bool status = m_db.GetApiAccountInfoUsingUserID(userID, &apiFullKey, &apiLimitedKey, &apiRole);
-
-    if ( (apiKey.compare( apiFullKey )) && (status) )
-        return true;
-    else
+    if ( !m_db.GetApiAccountInfoUsingUserID(userID, &apiFullKey, &apiLimitedKey, &apiRole) )
         return false;
+
+    // std::string::compare() returns 0 on a match, so the test must be == 0.
+    // An empty stored key must never authenticate.
+    if ( apiFullKey.empty() )
+        return false;
+
+    return (apiKey.compare( apiFullKey ) == 0);
 }
 
 bool APIServiceManager::_AuthenticateLimitedAPIQuery(std::string userID, std::string apiKey)
@@ -179,12 +231,17 @@ bool APIServiceManager::_AuthenticateLimitedAPIQuery(std::string userID, std::st
     std::string apiLimitedKey;
     uint32 apiRole;
 
-    bool status = m_db.GetApiAccountInfoUsingUserID(userID, &apiFullKey, &apiLimitedKey, &apiRole);
-
-    if ( (apiKey.compare( apiLimitedKey )) && (status) )
-        return true;
-    else
+    if ( !m_db.GetApiAccountInfoUsingUserID(userID, &apiFullKey, &apiLimitedKey, &apiRole) )
         return false;
+
+    if ( apiLimitedKey.empty() && apiFullKey.empty() )
+        return false;
+
+    // A full key also satisfies a limited-key query.
+    if ( !apiLimitedKey.empty() && apiKey.compare( apiLimitedKey ) == 0 )
+        return true;
+
+    return (!apiFullKey.empty() && apiKey.compare( apiFullKey ) == 0);
 }
 
 void APIServiceManager::_BuildXMLHeader()
@@ -342,10 +399,10 @@ void APIServiceManager::_CloseXMLTag()
     }
 }
 
-std::tr1::shared_ptr<std::string> APIServiceManager::_GetXMLDocumentString()
+std::shared_ptr<std::string> APIServiceManager::_GetXMLDocumentString()
 {
     TiXmlPrinter xmlPrinter;
     _XmlDoc.Accept( &xmlPrinter );
 
-    return std::tr1::shared_ptr<std::string>(new std::string(xmlPrinter.CStr()));
+    return std::shared_ptr<std::string>(new std::string(xmlPrinter.CStr()));
 }

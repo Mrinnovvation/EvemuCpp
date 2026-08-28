@@ -425,7 +425,7 @@ bool APIServerConnection::starts_with(std::string& haystack, const char *const n
     return haystack.substr(0, strlen(needle)).compare(needle) == 0;
 }
 
-std::tr1::shared_ptr<APIServerConnection> APIServerConnection::create(boost::asio::io_context& io)
+std::shared_ptr<APIServerConnection> APIServerConnection::create(boost::asio::io_context& io)
 {
-    return std::tr1::shared_ptr<APIServerConnection>(new APIServerConnection(io));
+    return std::shared_ptr<APIServerConnection>(new APIServerConnection(io));
 }

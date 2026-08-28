@@ -27,14 +27,22 @@
 
 #include "apiserver/APIEveSystemManager.h"
 
-APIEveSystemManager::APIEveSystemManager(const PyServiceMgr &services)
-: APIServiceManager(services)
+APIEveSystemManager::APIEveSystemManager()
+: APIServiceManager()
 {
 }
 
-std::tr1::shared_ptr<std::string> APIEveSystemManager::ProcessCall(const APICommandCall * pAPICommandCall)
+std::shared_ptr<std::string> APIEveSystemManager::ProcessCall(const APICommandCall * pAPICommandCall)
 {
     sLog.Debug("APIEveSystemManager::ProcessCall()", "EVEmu API - EvE-System Service Manager");
 
-    return std::tr1::shared_ptr<std::string>(new std::string(""));
+    /* Not implemented yet. Return a well-formed API error rather than an empty
+     * body so callers get a parseable document instead of a truncated response.
+     */
+    const char * handler = "(none)";
+    if ( pAPICommandCall->find( "servicehandler" ) != pAPICommandCall->end() )
+        handler = pAPICommandCall->find( "servicehandler" )->second.c_str();
+
+    sLog.Warning("APIEveSystemManager::ProcessCall()", "EVEmu API - EvE-System Service Manager is not implemented; rejecting '%s'", handler);
+    return BuildErrorXMLResponse( "9999", "EVEmu API Server: EvE-System Manager is not implemented." );
 }

@@ -44,10 +44,10 @@ class APIEveSystemManager
 : public APIServiceManager
 {
 public:
-    APIEveSystemManager(const PyServiceMgr &services);
+    APIEveSystemManager();
 
     // Common call shared to all derived classes called via polymorphism
-    std::tr1::shared_ptr<std::string> ProcessCall(const APICommandCall * pAPICommandCall);
+    std::shared_ptr<std::string> ProcessCall(const APICommandCall * pAPICommandCall);
 
 protected:
 

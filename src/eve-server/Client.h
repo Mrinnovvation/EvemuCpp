@@ -303,8 +303,9 @@ public:
     void FlushQueue();
 
     //  mission
+    void GetMissionItems(uint16 typeID, std::vector<InventoryItemRef>& into);
     void RemoveMissionItem(uint16 typeID, uint32 qty);
-    bool ContainsTypeQty(uint16 typeID, uint32 qty) const;
+    bool ContainsTypeQty(uint16 typeID, uint32 qty);
     bool IsMissionComplete(MissionOffer& data);
 
     //  scan

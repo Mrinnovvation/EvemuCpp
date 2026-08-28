@@ -17,7 +17,7 @@ void MissionDB::LoadMissionData(DBQueryResult& res)
 {
     if (!sDatabase.RunQuery(res,
         "SELECT id, briefingID, name, level, typeID, important, storyline, raceID, constellationID, corporationID, dungeonID,"
-        " rewardISK, rewardItemID, rewardISK, rewardItemQty, bonusISK, bonusTime FROM agtMissions WHERE briefingID > 0 AND rewardISK > 0"))
+        " rewardISK, rewardItemID, rewardItemQty, bonusISK, bonusTime FROM agtMissions WHERE briefingID > 0 AND rewardISK > 0"))
         codelog(DATABASE__ERROR, "Error in LoadMissionData query: %s", res.error.c_str());
 }
 
@@ -39,10 +39,14 @@ void MissionDB::LoadMiningData(DBQueryResult& res)
         codelog(DATABASE__ERROR, "Error in LoadMiningData query: %s", res.error.c_str());
 }
 
-void MissionDB::CreateOfferID(MissionOffer& data)
+bool MissionDB::CreateOfferID(MissionOffer& data)
 {
     DBerror err;
     uint32 uid = 0;
+    //  mission names come from the static tables and some of them contain apostrophes
+    //  (e.g. qstMining "Coming 'Round the Mountain"), so they cannot go in unescaped.
+    std::string name;
+    sDatabase.DoEscapeString(name, data.name);
     if (!sDatabase.RunQueryLID(err, uid,
         "INSERT INTO agtOffers(acceptFee, agentID, characterID, courierAmount, courierTypeID, courierVolume, dateAccepted, dateIssued, destinationID, destinationTypeID, "
         " destinationOwnerID, destinationSystemID, expiryTime, important, storyline, missionID, briefingID, name, offerID, originID, originOwnerID, originSystemID,"
@@ -55,15 +59,16 @@ void MissionDB::CreateOfferID(MissionOffer& data)
         " %u, %u, %u)",
             data.acceptFee, data.agentID, data.characterID, data.courierAmount, data.courierTypeID, data.courierItemVolume, data.dateAccepted, data.dateIssued, data.destinationID,
             data.destinationTypeID, data.destinationOwnerID, data.destinationSystemID, data.expiryTime, (data.important?1:0), data.storyline,
-            data.missionID, data.briefingID, data.name.c_str(), data.offerID, data.originID, data.originOwnerID, data.originSystemID,
+            data.missionID, data.briefingID, name.c_str(), data.offerID, data.originID, data.originOwnerID, data.originSystemID,
             (data.remoteCompletable?1:0), (data.remoteOfferable?1:0), data.rewardISK, data.rewardItemID, data.rewardItemQty,data.rewardLP, data.bonusISK, data.bonusTime,
             data.stateID, data.typeID, data.dungeonLocationID, data.dungeonSolarSystemID))
     {
         codelog(DATABASE__ERROR, "Failed to insert new MissionOffer: %s", err.c_str());
-        return;
+        return false;
     }
 
     data.offerID = uid;
+    return true;
 }
 
 void MissionDB::DeleteOffer(MissionOffer& data)
@@ -98,7 +103,7 @@ void MissionDB::LoadClosedOffers(DBQueryResult& res)
 {
     if (!sDatabase.RunQuery(res,
         "SELECT agentID, characterID, courierAmount, courierTypeID, dateAccepted, dateCompleted, dateIssued, destinationID, expiryTime, important, storyline, missionID, name,"
-        " offerID, originID, rewardISK, rewardItemID, rewardItemQty, rewardLP, stateID, typeID FROM agtOffers WHERE dateCompleted > 0 OR expiryTime > %f OR stateID > 2", GetFileTimeNow()))
+        " offerID, originID, rewardISK, rewardItemID, rewardItemQty, rewardLP, stateID, typeID FROM agtOffers WHERE dateCompleted > 0 OR stateID > 2"))
         codelog(DATABASE__ERROR, "Error in LoadClosedOffers query: %s", res.error.c_str());
 }
 
@@ -121,7 +126,7 @@ void MissionDB::RemoveMissionItem(uint32 charID, uint16 typeID, uint32 qty)
     sDatabase.RunQuery(res, "SELECT itemID, quantity FROM entity WHERE typeID = %u AND ownerID = %u", typeID, charID);
 
     DBResultRow row;
-    std::map<uint32, uint16> map;
+    std::map<uint32, uint32> map;   // itemID/quantity - stacks can exceed 65k
     while (res.GetRow(row)) {
         // make map of all items of 'typeID'
         map.emplace(row.GetInt(0), row.GetInt(1));
@@ -134,8 +139,9 @@ void MissionDB::RemoveMissionItem(uint32 charID, uint16 typeID, uint32 qty)
         if (cur.second <= qty) {
             qty -= cur.second;
             sDatabase.RunQuery(err, "DELETE FROM entity WHERE itemID = %u", cur.first);
-        } else if (cur.second > qty) {
-            sDatabase.RunQuery(err, "UPDATE entity SET quantity = %u WHERE itemID = %u", qty, cur.first);
+        } else {
+            //  leave the remainder of the stack, not the amount we were asked to take.
+            sDatabase.RunQuery(err, "UPDATE entity SET quantity = %u WHERE itemID = %u", (cur.second - qty), cur.first);
             qty = 0;
         }
     }

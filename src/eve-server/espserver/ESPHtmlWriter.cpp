@@ -52,8 +52,7 @@ static const char* const ESP_PAGE_STYLE =
 
 ESPHtmlWriter::ESPHtmlWriter(const std::string& title, const std::string& userName)
 : m_title(title),
-  m_userName(userName),
-  m_tableColumnCount(0)
+  m_userName(userName)
 {
     AppendHeader();
 }
@@ -71,26 +70,6 @@ std::string ESPHtmlWriter::Escape(const std::string& text)
             case '"':  out += "&quot;";  break;
             case '\'': out += "&#39;";   break;
             default:   out += *itr;      break;
-        }
-    }
-
-    return out;
-}
-
-std::string ESPHtmlWriter::UrlEncode(const std::string& text)
-{
-    static const char* const hex = "0123456789ABCDEF";
-    std::string out;
-    out.reserve(text.length());
-
-    for (std::string::const_iterator itr = text.begin(); itr != text.end(); ++itr) {
-        const unsigned char c = static_cast<unsigned char>(*itr);
-        if (isalnum(c) or (c == '-') or (c == '_') or (c == '.') or (c == '~')) {
-            out += static_cast<char>(c);
-        } else {
-            out += '%';
-            out += hex[(c >> 4) & 0x0F];
-            out += hex[c & 0x0F];
         }
     }
 
@@ -142,8 +121,6 @@ void ESPHtmlWriter::Notice(const std::string& text)
 
 void ESPHtmlWriter::BeginTable(const std::vector<std::string>& columns)
 {
-    m_tableColumnCount = columns.size();
-
     m_body += "<table><tr>";
     for (size_t i = 0; i < columns.size(); ++i)
         m_body += "<th>" + Escape(columns.at(i)) + "</th>";
@@ -169,7 +146,6 @@ void ESPHtmlWriter::RawRow(const std::vector<std::string>& cells)
 void ESPHtmlWriter::EndTable()
 {
     m_body += "</table>\n";
-    m_tableColumnCount = 0;
 }
 
 void ESPHtmlWriter::DefinitionList(const std::vector<std::string>& namesAndValues)

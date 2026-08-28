@@ -331,7 +331,6 @@ void ESPServerConnection::SendResponse(const ESPResponse& response)
 {
     const char* reason = "OK";
     switch (response.status) {
-        case 302: reason = "Found";                 break;
         case 400: reason = "Bad Request";           break;
         case 403: reason = "Forbidden";             break;
         case 404: reason = "Not Found";             break;
@@ -343,8 +342,6 @@ void ESPServerConnection::SendResponse(const ESPResponse& response)
 
     std::ostringstream out;
     out << "HTTP/1.1 " << response.status << " " << reason << "\r\n";
-    if (!response.redirectTo.empty())
-        out << "Location: " << response.redirectTo << "\r\n";
     out << "Content-Type: " << response.contentType << "\r\n";
     out << "Content-Length: " << response.body.length() << "\r\n";
     // These pages are GM tooling; keep them out of caches and out of frames.

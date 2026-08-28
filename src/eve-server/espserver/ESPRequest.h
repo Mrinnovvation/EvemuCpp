@@ -97,8 +97,6 @@ struct ESPResponse
     int status;                 ///< HTTP status code.
     std::string contentType;
     std::string body;
-    /// Set for a redirect; emitted as a 302 Location header.
-    std::string redirectTo;
 };
 
 #endif  // __ESPREQUEST_H_INCL__

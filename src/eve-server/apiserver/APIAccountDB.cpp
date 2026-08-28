@@ -25,6 +25,8 @@
 
 #include "eve-server.h"
 
+#include "apiserver/APIDBUtil.h"
+
 #include "apiserver/APIAccountDB.h"
 
 APIAccountDB::APIAccountDB()
@@ -39,13 +41,12 @@ bool APIAccountDB::GetCharactersList(uint32 accountID, std::vector<std::string> 
     // Get list of characters and their corporation info from the accountID:
     if ( !sDatabase.RunQuery(res,
         " SELECT "
-        "   character_.characterID, "
-        "   character_.corporationID, "
-        "   corporation.corporationName, "
-        "   entity.itemName AS name "
-        " FROM `character_` "
-        "   LEFT JOIN corporation ON corporation.corporationID = character_.corporationID "
-        "   LEFT JOIN entity ON entity.itemID = character_.characterID "
+        "   chrCharacters.characterID, "
+        "   chrCharacters.corporationID, "
+        "   crpCorporation.corporationName, "
+        "   chrCharacters.characterName AS name "
+        " FROM chrCharacters "
+        "   LEFT JOIN crpCorporation ON crpCorporation.corporationID = chrCharacters.corporationID "
         " WHERE `accountID` = %u ", accountID ))
     {
         sLog.Error( "APIAccountDB::GetCharactersList()", "Cannot find accountID %u", accountID );
@@ -56,10 +57,10 @@ bool APIAccountDB::GetCharactersList(uint32 accountID, std::vector<std::string> 
     std::map<std::string, std::string> charInfo;
     while( res.GetRow( row ) )
     {
-        charIDList.push_back( std::string(row.GetText(0)) );
-        charCorpIDList.push_back( std::string(row.GetText(1)) );
-        charCorpNameList.push_back( std::string(row.GetText(2)) );
-        charNameList.push_back( std::string(row.GetText(3)) );
+        charIDList.push_back( APIText(row, 0) );
+        charCorpIDList.push_back( APIText(row, 1) );
+        charCorpNameList.push_back( APIText(row, 2) );
+        charNameList.push_back( APIText(row, 3) );
     }
 
     return true;
@@ -91,10 +92,10 @@ bool APIAccountDB::GetAccountInfo(uint32 accountID, std::vector<std::string> & a
         return false;
     }
 
-    accountInfoList.push_back( std::string(row.GetText(0)) );
-    accountInfoList.push_back( std::string(row.GetText(1)) );
-    accountInfoList.push_back( std::string(row.GetText(2)) );
-    accountInfoList.push_back( std::string(row.GetText(3)) );
+    accountInfoList.push_back( APIText(row, 0) );
+    accountInfoList.push_back( APIText(row, 1) );
+    accountInfoList.push_back( APIText(row, 2) );
+    accountInfoList.push_back( APIText(row, 3) );
 
     return true;
 }

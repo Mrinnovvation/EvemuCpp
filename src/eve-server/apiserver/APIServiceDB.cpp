@@ -25,6 +25,8 @@
 
 #include "eve-server.h"
 
+#include "apiserver/APIDBUtil.h"
+
 #include "apiserver/APIServiceDB.h"
 
 APIServiceDB::APIServiceDB()
@@ -38,7 +40,7 @@ bool APIServiceDB::GetAccountIDForCharacter(uint32 characterID, uint32 * account
     if ( !sDatabase.RunQuery(res,
         "SELECT"
         "    accountID "
-        " FROM character_ "
+        " FROM chrCharacters "
         " WHERE characterID = %u", characterID ))
     {
         sLog.Error( "APIServiceDB::GetAccountIDForCharacter()", "Error in query: %s.", res.error.c_str() );
@@ -83,8 +85,8 @@ bool APIServiceDB::AuthenticateAccount(std::string username, std::string passwor
     if ( row.GetInt(4) != 0 )
         return false;           // banned
 
-    const std::string dbPassword = (row.IsNull(1) ? "" : row.GetText(1));
-    const std::string dbHash     = (row.IsNull(2) ? "" : row.GetText(2));
+    const std::string dbPassword = APIText(row, 1);
+    const std::string dbHash     = APIText(row, 2);
 
     bool authenticated = false;
     if ( !dbPassword.empty() )
@@ -130,7 +132,7 @@ bool APIServiceDB::GetAccountIdFromUsername(std::string username, std::string * 
         return false;
     }
 
-    *accountID = row.GetText(0);        // Grab accountID from the retrieved row from the 'account' table
+    *accountID = APIText(row, 0);        // Grab accountID from the retrieved row from the 'account' table
     return true;
 }
 
@@ -188,8 +190,8 @@ bool APIServiceDB::GetApiAccountInfoUsingAccountID(std::string accountID, uint32
     }
 
     *userID = row.GetUInt(0);            // Grab userID from retrieved row from the 'accountApi' table
-    *apiFullKey = row.GetText(1);        // Grab Full API Key from retrieved row from the 'accountApi' table
-    *apiLimitedKey = row.GetText(2);    // Grab Limited API Key from retrieved row from the 'accountApi' table
+    *apiFullKey = APIText(row, 1);        // Grab Full API Key from retrieved row from the 'accountApi' table
+    *apiLimitedKey = APIText(row, 2);    // Grab Limited API Key from retrieved row from the 'accountApi' table
     *apiRole = row.GetUInt(3);            // Grab API Role from retrieved row from the 'accountApi' table
     return true;
 }
@@ -218,8 +220,8 @@ bool APIServiceDB::GetApiAccountInfoUsingUserID(std::string userID, std::string 
         return false;
     }
 
-    *apiFullKey = row.GetText(0);        // Grab Full API Key from retrieved row from the 'accountApi' table
-    *apiLimitedKey = row.GetText(1);    // Grab Limited API Key from retrieved row from the 'accountApi' table
+    *apiFullKey = APIText(row, 0);        // Grab Full API Key from retrieved row from the 'accountApi' table
+    *apiLimitedKey = APIText(row, 1);    // Grab Limited API Key from retrieved row from the 'accountApi' table
     *apiRole = row.GetUInt(2);            // Grab API Role from retrieved row from the 'accountApi' table
     return true;
 }

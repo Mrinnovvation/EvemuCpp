@@ -54,8 +54,6 @@ public:
 
     /// HTML-escapes a string for use as element text or an attribute value.
     static std::string Escape(const std::string& text);
-    /// Percent-encodes a string for use inside a URL query value.
-    static std::string UrlEncode(const std::string& text);
 
     /// Emits a section heading.
     void Heading(const std::string& text);
@@ -94,7 +92,6 @@ private:
     std::string m_title;
     std::string m_userName;
     std::string m_body;
-    size_t m_tableColumnCount;
 };
 
 #endif  // __ESPHTMLWRITER_H_INCL__

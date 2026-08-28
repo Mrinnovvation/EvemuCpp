@@ -94,6 +94,10 @@ A role value of `2013265920` confirms full admin access.
 
 For a full list of available GM commands see [doc/admin_reference.md](doc/admin_reference.md).
 
+## ESP and the XML API
+ EVEmu can serve the client's GM web pages (ESP, *EVE Server Pages*) and an `api.eveonline.com`-style XML API.
+ Both are disabled by default; see [doc/ESP_and_API.md](doc/ESP_and_API.md) for how to enable them and what they expose.
+
 ## Communication / Contact
 For the upstream project: [EVEmu Project website](https://evemu.dev), [Discord](https://discord.gg/fTfAREYxbz), and [Forums](https://forums.evemu.dev).
 

@@ -63,12 +63,18 @@ bool Agent::Load() {
     return true;
 }
 
-void Agent::MakeOffer(uint32 charID, MissionOffer& offer)
+bool Agent::MakeOffer(uint32 charID, MissionOffer& offer)
 {
+    //  an agent only ever hands out one mission at a time.  handing out a second one would orphan
+    //  the first in agtOffers and leave two entries in the journal for the same agent.
+    if (HasMission(charID, offer))
+        return true;
+
     // this will be based on agent type eventually
     uint8 misionType = Mission::Type::Courier;
 
-    sMissionDataMgr.CreateMissionOffer(misionType, m_agentData.level, m_agentData.raceID, m_important, offer);
+    if (!sMissionDataMgr.CreateMissionOffer(misionType, m_agentData.level, m_agentData.raceID, m_important, offer))
+        return false;
 
     /*  static mission data from db
     offer.name               = cData.name;
@@ -107,9 +113,12 @@ void Agent::MakeOffer(uint32 charID, MissionOffer& offer)
     //offer.dungeonSolarSystemID   = 0;
     sMapData.GetMissionDestination(this, misionType, offer);
     if (offer.destinationID == 0) {
-        // make error here and reset
-        sEntityList.FindClientByCharID(charID)->SendErrorMsg("Internal Server Error. Ref: ServerError 07208.");
-        //return;
+        // no usable destination in range - abandon the offer instead of issuing a broken one.
+        _log(AGENT__ERROR, "Agent::MakeOffer() - no destination found for agent %u (system %u)", m_agentID, m_agentData.solarSystemID);
+        Client* pClient = sEntityList.FindClientByCharID(charID);
+        if (pClient != nullptr)
+            pClient->SendErrorMsg("Internal Server Error. Ref: ServerError 07208.");
+        return false;
     }
 
     // not sure how this is checked/set
@@ -121,7 +130,7 @@ void Agent::MakeOffer(uint32 charID, MissionOffer& offer)
     offer.acceptFee          = 0;
 
     // create and save bookmarks for this offer.... not sure how yet.
-    offer.bookmarks          = new PyList();
+    //  (CreateMissionOffer() already gave us an empty list; re-allocating here leaked it.)
 
     //offer.dateAccepted       = 0;     //not set here
     //offer.dateCompleted      = 0;     //not set here
@@ -143,11 +152,15 @@ void Agent::MakeOffer(uint32 charID, MissionOffer& offer)
         }
     }
 
-    MissionDB::CreateOfferID(offer);
+    //  without a real offerID every later UpdateMissionOffer()/DeleteOffer() would silently
+    //  target offerID 0, and the offer would vanish on the next restart.
+    if (!MissionDB::CreateOfferID(offer))
+        return false;
 
     // keep local copy and also add to mission data mgr
     m_offers.emplace(charID, offer);
     sMissionDataMgr.AddMissionOffer(charID, offer);
+    return true;
 }
 
 bool Agent::HasMission(uint32 charID)

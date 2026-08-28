@@ -39,10 +39,14 @@ void MissionDataMgr::Clear()
 {
     m_names.clear();
     m_offers.clear();
+    m_aoffers.clear();
     m_mining.clear();
+    m_miningImp.clear();
     m_courier.clear();
+    m_courierImp.clear();
     m_xoffers.clear();
     m_missions.clear();
+    m_missionsImp.clear();
 }
 
 int MissionDataMgr::Initialize()
@@ -69,11 +73,14 @@ void MissionDataMgr::Process()
         std::multimap<uint32, MissionOffer>::iterator itr = m_offers.begin();
         while (itr != m_offers.end()) {
             if (itr->second.expiryTime < GetFileTimeNow()) {
+                //  the agent is only loaded while its system is booted, so this can legitimately
+                //  be null.  the offer still has to expire either way.
                 pAgent = sEntityList.GetAgent(itr->second.agentID);
                 pClient = sEntityList.FindClientByCharID(itr->first);
                 // notify client if they are online.  eventaully we'll send mail also
                 if (itr->second.stateID == Mission::State::Accepted) {
-                    pAgent->SendMissionUpdate(pClient, "failed");
+                    if (pAgent != nullptr)
+                        pAgent->SendMissionUpdate(pClient, "failed");
                     itr->second.stateID = Mission::State::Failed;
                     if (itr->second.courierTypeID) {
                         // remove item from player's possession
@@ -83,15 +90,25 @@ void MissionDataMgr::Process()
                             MissionDB::RemoveMissionItem(itr->first, itr->second.courierTypeID, itr->second.courierAmount);
                         }
                     }
-                } else if (itr->second.stateID == Mission::State::Offered) {
-                    pAgent->SendMissionUpdate(pClient, "offer_expired");
+                } else {
+                    if (pAgent != nullptr)
+                        pAgent->SendMissionUpdate(pClient, "offer_expired");
                     itr->second.stateID = Mission::State::Expired;
                 }
-                std::multimap<uint32, MissionOffer>::iterator itr2 = m_aoffers.find(itr->second.agentID);
-                if (itr2 != m_aoffers.end())
-                    m_aoffers.erase(itr2);
-                m_xoffers.emplace(itr->first, itr->second);
-                pAgent->RemoveOffer(itr->first);
+                //  m_aoffers is keyed by agentID and an agent can hold offers for several chars,
+                //  so match on the character too instead of erasing whichever one find() lands on.
+                auto arange = m_aoffers.equal_range(itr->second.agentID);
+                for (auto it2 = arange.first; it2 != arange.second; ++it2)
+                    if (it2->second.characterID == itr->first) {
+                        m_aoffers.erase(it2);
+                        break;
+                    }
+                //  LoadMissionOffers() only reads m_xoffers when the config switch is on; with
+                //  it off this just grew forever.
+                if (sConfig.server.LoadOldMissions)
+                    m_xoffers.emplace(itr->first, itr->second);
+                if (pAgent != nullptr)
+                    pAgent->RemoveOffer(itr->first);
                 MissionDB::UpdateMissionOffer(itr->second);
                 itr = m_offers.erase(itr);
                 pAgent = nullptr;
@@ -263,8 +280,8 @@ void MissionDataMgr::Populate()
         offer.destinationOwnerID = row.GetInt(10);
         offer.destinationSystemID = row.GetInt(11);
         offer.expiryTime = row.GetInt64(12);
-        offer.important = row.GetInt(13);
-        offer.storyline = row.GetInt(14);
+        offer.important = row.GetBool(13);      // bit(1) - GetInt() strtol()s the raw byte and returns 0
+        offer.storyline = row.GetBool(14);
         offer.missionID = row.GetInt(15);
         offer.briefingID = row.GetInt(16);
         offer.name = row.GetText(17);
@@ -272,8 +289,8 @@ void MissionDataMgr::Populate()
         offer.originID = row.GetInt(19);
         offer.originOwnerID = row.GetInt(20);
         offer.originSystemID = row.GetInt(21);
-        offer.remoteCompletable = row.GetInt(22);
-        offer.remoteOfferable = row.GetInt(23);
+        offer.remoteCompletable = row.GetBool(22);  // bit(1)
+        offer.remoteOfferable = row.GetBool(23);    // bit(1)
         offer.rewardISK = row.GetInt(24);
         offer.rewardItemID = row.GetInt(25);
         offer.rewardItemQty = row.GetInt(26);
@@ -297,7 +314,9 @@ void MissionDataMgr::Populate()
     // config switch to allow loading/displaying of expired/completed mission offers
     if (sConfig.server.LoadOldMissions)
         MissionDB::LoadClosedOffers(*res);
-    while (res->GetRow(row)) {
+    //  the switch has to gate the loop as well: with it off, 'res' still holds the open-offer
+    //  result and this used to walk that instead.
+    while (sConfig.server.LoadOldMissions and res->GetRow(row)) {
         //SELECT agentID, characterID, courierAmount, courierTypeID, dateAccepted, dateCompleted, dateIssued, destinationID, expiryTime, important, storyline, missionID, name,
         // offerID, originID, rewardISK, rewardItemID, rewardItemQty, rewardLP, stateID, typeID FROM agtOffers
         MissionOffer offer = MissionOffer();
@@ -310,8 +329,8 @@ void MissionDataMgr::Populate()
         offer.dateIssued = row.GetInt64(6);
         offer.destinationID = row.GetInt(7);
         offer.expiryTime = row.GetInt64(8);
-        offer.important = row.GetInt(9);
-        offer.storyline = row.GetInt(10);
+        offer.important = row.GetBool(9);       // bit(1)
+        offer.storyline = row.GetBool(10);      // bit(1)
         offer.missionID = row.GetInt(11);
         offer.name = row.GetText(12);
         offer.offerID = row.GetInt(13);
@@ -336,7 +355,7 @@ void MissionDataMgr::Populate()
         offer.dungeonLocationID = 0;
         offer.dungeonSolarSystemID = 0;
         offer.bookmarks = new PyList(); //invalid offers will not have bms
-        m_xoffers.emplace(row.GetInt(2), offer);
+        m_xoffers.emplace(offer.characterID, offer);    // column 1, not column 2 (courierAmount)
     }
     sLog.Cyan("   MissionDataMgr", "%lu Closed Mission Offers loaded in %.3fms.", m_xoffers.size(), (GetTimeMSeconds() - start));
 
@@ -418,7 +437,42 @@ void MissionDataMgr::LoadMissionOffers(uint32 charID, std::vector<MissionOffer>&
     }
 }
 
-void MissionDataMgr::CreateMissionOffer(uint8 typeID, uint8 level, uint8 raceID, bool important, MissionOffer& data)
+/*  Pick a random mission from 'data' for the given level and race.
+ *
+ *  The static tables are sparse:  MissionDB::LoadCourierData()/LoadMiningData() drop every row
+ *  without a briefingID, an itemTypeID and an ISK reward, which empties whole (level, important)
+ *  buckets - e.g. there is no non-important level 5 courier mission left.  The old code went
+ *  straight to cVec[MakeRandomInt(0, cVec.size() - 1)], and on an empty vector size() - 1 wraps
+ *  (size_t) to a huge index and reads off the end of the vector.
+ *
+ *  Walk down to lower levels when the requested one has nothing, and prefer missions matching the
+ *  agent's race while still allowing the race-agnostic ones (raceID 0).
+ */
+bool MissionDataMgr::GetRandomMission(const std::multimap<uint8, CourierData>& missionMap, uint8 level, uint8 raceID, CourierData& into)
+{
+    std::vector<CourierData> match, any;
+    for (uint8 cur = level; ; --cur) {
+        auto range = missionMap.equal_range(cur);
+        for (auto it = range.first; it != range.second; ++it) {
+            any.push_back(it->second);
+            if ((it->second.raceID == 0) or ((it->second.raceID & raceID) == raceID))
+                match.push_back(it->second);
+        }
+        if (!any.empty())
+            break;
+        if (cur == 0)
+            break;
+    }
+
+    const std::vector<CourierData>& pool = (match.empty() ? any : match);
+    if (pool.empty())
+        return false;
+
+    into = pool.at(MakeRandomInt(0, (pool.size() -1)));
+    return true;
+}
+
+bool MissionDataMgr::CreateMissionOffer(uint8 typeID, uint8 level, uint8 raceID, bool important, MissionOffer& data)
 {
     // variable mission data based on agent, init to 0 here.
     data.stateID                = Mission::State::Allocated;
@@ -449,23 +503,10 @@ void MissionDataMgr::CreateMissionOffer(uint8 typeID, uint8 level, uint8 raceID,
     switch (typeID) {
         case Mission::Type::Courier: {
             CourierData cData = CourierData();
-            std::vector<CourierData> cVec;
-            if (important) {
-                auto itr = m_courierImp.equal_range(level);
-                for (auto it = itr.first; it != itr.second; ++it)
-                    cVec.push_back(it->second);
-            } else {
-                auto itr = m_courier.equal_range(level);
-                for (auto it = itr.first; it != itr.second; ++it)
-                    cVec.push_back(it->second);
-            }
-            cData = cVec[MakeRandomInt(0, (cVec.size() -1))];
-            // verify mission race acceptable
-            if ((cData.raceID) and ((cData.raceID & raceID) != raceID)) {
-                for (auto cur :cVec) {
-                    if ((cur.raceID & raceID) == raceID)
-                        cData = cur;
-                }
+            if (!GetRandomMission((important ? m_courierImp : m_courier), level, raceID, cData)) {
+                _log(AGENT__ERROR, "MissionDataMgr::CreateMissionOffer() - no %s courier mission data for level %u",
+                     (important ? "important" : "standard"), level);
+                return false;
             }
 
             data.name               = cData.name;
@@ -486,17 +527,11 @@ void MissionDataMgr::CreateMissionOffer(uint8 typeID, uint8 level, uint8 raceID,
         } break;
         case Mission::Type::Mining: {
             CourierData cData = CourierData();
-            std::vector<CourierData> cVec;
-            if (important) {
-                auto itr = m_miningImp.equal_range(level);
-                for (auto it = itr.first; it != itr.second; ++it)
-                    cVec.push_back(it->second);
-            } else {
-                auto itr = m_mining.equal_range(level);
-                for (auto it = itr.first; it != itr.second; ++it)
-                    cVec.push_back(it->second);
+            if (!GetRandomMission((important ? m_miningImp : m_mining), level, raceID, cData)) {
+                _log(AGENT__ERROR, "MissionDataMgr::CreateMissionOffer() - no %s mining mission data for level %u",
+                     (important ? "important" : "standard"), level);
+                return false;
             }
-            cData = cVec[MakeRandomInt(0, (cVec.size() -1))];
 
             data.name               = cData.name;
             data.typeID             = cData.typeID;
@@ -514,27 +549,27 @@ void MissionDataMgr::CreateMissionOffer(uint8 typeID, uint8 level, uint8 raceID,
             data.courierItemVolume  = cData.itemVolume;
             data.range              = cData.range;
         } break;
-        case Mission::Type::Tutorial: {
-        } break;
-        case Mission::Type::Encounter: {
-        } break;
-        case Mission::Type::Trade: {
-        } break;
-        case Mission::Type::Research: {
-        } break;
-        case Mission::Type::Data: {
-        } break;
-        case Mission::Type::Storyline: {
-        } break;
-        case Mission::Type::Cosmos: {
-        } break;
-        case Mission::Type::EpicArc: {
-        } break;
-        case Mission::Type::Anomic: {
-        } break;
+        case Mission::Type::Tutorial:
+        case Mission::Type::Encounter:
+        case Mission::Type::Trade:
+        case Mission::Type::Research:
+        case Mission::Type::Data:
+        case Mission::Type::Storyline:
+        case Mission::Type::Cosmos:
+        case Mission::Type::EpicArc:
+        case Mission::Type::Burner:
+        case Mission::Type::Anomic:
+        default: {
+            /*  nothing populates data for these yet.  bail out rather than handing the caller an
+             *  offer with no name, typeID or briefingID.
+             */
+            _log(AGENT__ERROR, "MissionDataMgr::CreateMissionOffer() - unsupported mission type %u", typeID);
+            return false;
+        }
     }
 
     _log(AGENT__DEBUG, "Created %s level %u %s offer - '%s'", (important?"an important":"a"), level, GetTypeName(data.typeID).c_str(), data.name.c_str());
+    return true;
 }
 
 
@@ -555,6 +590,22 @@ std::string MissionDataMgr::GetTypeName(uint8 typeID)
         case Anomic:            return "Anomic";
         case Burner:            return "Burner";
         default:                return "Invalid";
+    }
+}
+
+int8 MissionDataMgr::GetClientState(uint8 stateID)
+{
+    using namespace Mission::State;
+    switch (stateID) {
+        case Allocated:
+        case Offered:
+        case Accepted:
+        case Failed:        return stateID;
+        case Defered:       return Allocated;
+        case Expired:       return Failed;
+        case Completed:
+        case Rejected:
+        default:            return -1;      // finished offers are not shown in the journal
     }
 }
 

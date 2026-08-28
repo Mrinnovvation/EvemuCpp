@@ -28,6 +28,8 @@
 
 
 
+#include "eve-common.h"
+
 class APIAccountDB
 {
 public:

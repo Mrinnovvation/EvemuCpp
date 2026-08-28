@@ -45,17 +45,20 @@ class APICharacterManager
 : public APIServiceManager
 {
 public:
-    APICharacterManager(const PyServiceMgr &services);
+    APICharacterManager();
 
     // Common call shared to all derived classes called via polymorphism
-    std::tr1::shared_ptr<std::string> ProcessCall(const APICommandCall * pAPICommandCall);
+    std::shared_ptr<std::string> ProcessCall(const APICommandCall * pAPICommandCall);
 
 protected:
 
     APICharacterDB m_charDB;
-    std::tr1::shared_ptr<std::string> _CharacterSheet(const APICommandCall * pAPICommandCall);
-    std::tr1::shared_ptr<std::string> _SkillQueue(const APICommandCall * pAPICommandCall);
-    std::tr1::shared_ptr<std::string> _SkillInTraining(const APICommandCall * pAPICommandCall);
+    std::shared_ptr<std::string> _CharacterSheet(const APICommandCall * pAPICommandCall);
+    std::shared_ptr<std::string> _SkillQueue(const APICommandCall * pAPICommandCall);
+    std::shared_ptr<std::string> _SkillInTraining(const APICommandCall * pAPICommandCall);
+
+    static bool _LookupLearningAttribute(const std::map<uint32, uint32> & attributes,
+                                         const std::string & attributeIDText, uint32 * value);
 
 };
 

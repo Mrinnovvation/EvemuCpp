@@ -46,32 +46,32 @@ APIServer::APIServer()
     _url = urlBuilder.str();
 }
 
-void APIServer::CreateServices(const PyServiceMgr &services)
+void APIServer::CreateServices()
 {
     if ( !runonce )
     {
-        m_APIServiceManagers.insert(std::make_pair("base", new APIServiceManager(services)));
-        m_APIServiceManagers.insert(std::make_pair("account", new APIAccountManager(services)));
-        m_APIServiceManagers.insert(std::make_pair("admin", new APIAdminManager(services)));
-        m_APIServiceManagers.insert(std::make_pair("char", new APICharacterManager(services)));
-        m_APIServiceManagers.insert(std::make_pair("corp", new APICorporationManager(services)));
-        m_APIServiceManagers.insert(std::make_pair("eve", new APIEveSystemManager(services)));
-        m_APIServiceManagers.insert(std::make_pair("map", new APIMapManager(services)));
-		m_APIServiceManagers.insert(std::make_pair("object", new APIActiveObjectManager(services)));
-        m_APIServiceManagers.insert(std::make_pair("server", new APIServerManager(services)));
+        m_APIServiceManagers.insert(std::make_pair("base",    new APIServiceManager()));
+        m_APIServiceManagers.insert(std::make_pair("account", new APIAccountManager()));
+        m_APIServiceManagers.insert(std::make_pair("admin",   new APIAdminManager()));
+        m_APIServiceManagers.insert(std::make_pair("char",    new APICharacterManager()));
+        m_APIServiceManagers.insert(std::make_pair("corp",    new APICorporationManager()));
+        m_APIServiceManagers.insert(std::make_pair("eve",     new APIEveSystemManager()));
+        m_APIServiceManagers.insert(std::make_pair("map",     new APIMapManager()));
+        m_APIServiceManagers.insert(std::make_pair("object",  new APIActiveObjectManager()));
+        m_APIServiceManagers.insert(std::make_pair("server",  new APIServerManager()));
     }
 
     runonce = true;
 }
 
-std::tr1::shared_ptr<std::vector<char> > APIServer::GetXML(const APICommandCall * pAPICommandCall)
+std::shared_ptr<std::vector<char> > APIServer::GetXML(const APICommandCall * pAPICommandCall)
 {
     //if ( m_APIServiceManagers.find(pAPICommandCall->at(0).first) != m_APIServiceManagers.end() )
     if ( pAPICommandCall->find( "service" ) == pAPICommandCall->end() )
     {
         sLog.Error( "APIserver::GetXML()", "Cannot find 'service' specifier in pAPICommandCall packet" );
-        return std::tr1::shared_ptr<std::vector<char> >(new std::vector<char>() );
-        //return std::tr1::shared_ptr<std::string>(new std::string(""));
+        return std::shared_ptr<std::vector<char> >(new std::vector<char>() );
+        //return std::shared_ptr<std::string>(new std::string(""));
     }
 
     if ( m_APIServiceManagers.find(pAPICommandCall->find( "service" )->second) != m_APIServiceManagers.end() )
@@ -81,7 +81,7 @@ std::tr1::shared_ptr<std::vector<char> > APIServer::GetXML(const APICommandCall 
         m_xmlString = m_APIServiceManagers.find( pAPICommandCall->find( "service" )->second )->second->ProcessCall( pAPICommandCall );
 
         // Convert the std::string to the std::vector<char>:
-        std::tr1::shared_ptr<std::vector<char> > ret = std::tr1::shared_ptr<std::vector<char> >(new std::vector<char>());
+        std::shared_ptr<std::vector<char> > ret = std::shared_ptr<std::vector<char> >(new std::vector<char>());
         unsigned long len = m_xmlString->length();
         for(size_t i=0; i<m_xmlString->length(); i++)
             ret->push_back(m_xmlString->at(i));
@@ -91,7 +91,7 @@ std::tr1::shared_ptr<std::vector<char> > APIServer::GetXML(const APICommandCall 
     else
     {
         // Service call not found, so return NULL:
-        return std::tr1::shared_ptr<std::vector<char> >(new std::vector<char>() );
+        return std::shared_ptr<std::vector<char> >(new std::vector<char>() );
         //return NULL;
         //m_xmlString = m_APIServiceManagers.find("base")->second->ProcessCall(pAPICommandCall);
     }
@@ -109,8 +109,12 @@ void APIServer::Run()
 
 void APIServer::Stop()
 {
-    _io->stop();
-    _ioThread->join();
+    // Run() may never have been called (API server disabled), and RunInternal()
+    // creates _io on the worker thread, so both pointers can legitimately be null.
+    if (_io)
+        _io->stop();
+    if (_ioThread)
+        _ioThread->join();
 }
 
 void APIServer::RunInternal()

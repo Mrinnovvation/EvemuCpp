@@ -113,6 +113,7 @@
 #include "fleet/FleetProxy.h"
 #include "fleet/FleetService.h"
 // imageserver services
+#include "apiserver/APIServer.h"
 #include "imageserver/ImageServer.h"
 // development index service
 #include "system/IndexManager.h"
@@ -626,6 +627,16 @@ int main( int argc, char* argv[] )
     //  this gives the imageserver's server time to load so the dynamic database msgs are in order
     Sleep(250);
 
+    // start up the API server, if the operator enabled it
+    if (sConfig.net.apiServerEnabled) {
+        sLog.Green("       ServerInit", "Starting API Server");
+        sAPIServer.CreateServices();
+        sAPIServer.Run();
+        Sleep(250);
+    } else {
+        sLog.Cyan("       ServerInit", "API Server disabled (net/apiServerEnabled)");
+    }
+
     sThread.Initialize();
     sLog.Green( "        Threading", "Starting Main Loop thread with ID 0x%X", std::this_thread::get_id() );
     //sThread.AddThread(pthread_self());
@@ -938,6 +949,11 @@ int main( int argc, char* argv[] )
     /* stop Image Server */
     sImageServer.Stop();
     sLog.Warning("   ServerShutdown", "Image Server stopped." );
+    /* stop API Server */
+    if (sConfig.net.apiServerEnabled) {
+        sAPIServer.Stop();
+        sLog.Warning("   ServerShutdown", "API Server stopped." );
+    }
     /* Close the MarketMgr */
     sMktMgr.Close();
     /* Close the bulk data manager */
@@ -1044,6 +1060,11 @@ static void CleanUp() {
     /* stop Image Server */
     sImageServer.Stop();
     sLog.Warning("   ServerShutdown", "Image Server stopped." );
+    /* stop API Server */
+    if (sConfig.net.apiServerEnabled) {
+        sAPIServer.Stop();
+        sLog.Warning("   ServerShutdown", "API Server stopped." );
+    }
     /* Close the MarketMgr */
     sLog.Warning("   ServerShutdown", "Shutting down Market Manager." );
     sMktMgr.Close();

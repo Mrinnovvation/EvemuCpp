@@ -28,19 +28,34 @@
 #include "apiserver/APICharacterManager.h"
 #include "inventory/AttributeEnum.h"
 
-APICharacterManager::APICharacterManager(const PyServiceMgr &services)
-: APIServiceManager(services)
+APICharacterManager::APICharacterManager()
+: APIServiceManager()
 {
 }
 
-std::tr1::shared_ptr<std::string> APICharacterManager::ProcessCall(const APICommandCall * pAPICommandCall)
+/* Maps a skill's primary/secondary attribute *ID* (as text, e.g. "165") onto the
+ * character's current value for that attribute. Returns false when the character
+ * has no such attribute, rather than dereferencing map::end().
+ */
+bool APICharacterManager::_LookupLearningAttribute(const std::map<uint32, uint32> & attributes,
+                                                   const std::string & attributeIDText, uint32 * value)
+{
+    std::map<uint32, uint32>::const_iterator itr = attributes.find( atoi( attributeIDText.c_str() ) );
+    if ( itr == attributes.end() )
+        return false;
+
+    *value = itr->second;
+    return true;
+}
+
+std::shared_ptr<std::string> APICharacterManager::ProcessCall(const APICommandCall * pAPICommandCall)
 {
     sLog.Debug("APIAdminManager::ProcessCall()", "EVEmu API - Character Service Manager");
 
     if ( pAPICommandCall->find( "servicehandler" ) == pAPICommandCall->end() )
     {
         sLog.Error( "APICharacterManager::ProcessCall()", "Cannot find 'servicehandler' specifier in pAPICommandCall packet" );
-        return std::tr1::shared_ptr<std::string>(new std::string(""));
+        return std::shared_ptr<std::string>(new std::string(""));
     }
 
     if ( pAPICommandCall->find( "servicehandler" )->second == "CharacterSheet.xml.aspx" )
@@ -55,41 +70,25 @@ std::tr1::shared_ptr<std::string> APICharacterManager::ProcessCall(const APIComm
     {
         sLog.Error("APIAdminManager::ProcessCall()", "EVEmu API - Admin Service Manager - ERROR: Cannot resolve '%s' as a valid service query for Admin Service Manager",
             pAPICommandCall->find("servicehandler")->second.c_str() );
-        return std::tr1::shared_ptr<std::string>(new std::string(""));
+        return std::shared_ptr<std::string>(new std::string(""));
     }
     sLog.Debug("APICharacterManager::ProcessCall()", "EVEmu API - Character Service Manager");
 
     return BuildErrorXMLResponse( "9999", "EVEmu API Server: Character Manager - Unknown call." );
 }
 
-std::tr1::shared_ptr<std::string> APICharacterManager::_CharacterSheet(const APICommandCall * pAPICommandCall)
+std::shared_ptr<std::string> APICharacterManager::_CharacterSheet(const APICommandCall * pAPICommandCall)
 {
     size_t i;
 
-    sLog.Error( "APICharacterManager::_CharacterSheet()", "TODO: Insert code to validate userID and apiKey" );
-
     sLog.Debug("APICharacterManager::_CharacterSheet()", "EVEmu API - Character Service Manager - CALL: CharacterSheet.xml.aspx");
 
-    if ( pAPICommandCall->find( "userid" ) == pAPICommandCall->end() )
-    {
-        sLog.Error( "APICharacterManager::_CharacterSheet()", "ERROR: No 'userID' parameter found in call argument list - exiting with error and sending back NOTHING" );
-        return BuildErrorXMLResponse( "106", "Must provide userID parameter for authentication." );
-    }
-
-    if ( pAPICommandCall->find( "apikey" ) == pAPICommandCall->end() )
-    {
-        sLog.Error( "APICharacterManager::_CharacterSheet()", "ERROR: No 'apiKey' parameter found in call argument list - exiting with error and sending back NOTHING" );
-        return BuildErrorXMLResponse( "203", "Authentication failure." );
-    }
-
-    if ( pAPICommandCall->find( "characterid" ) == pAPICommandCall->end() )
-    {
-        sLog.Error( "APICharacterManager::_CharacterSheet()", "ERROR: No 'characterID' parameter found in call argument list - exiting with error and sending back NOTHING" );
-        return BuildErrorXMLResponse( "105", "Invalid characterID." );
-    }
+    uint32 characterID = 0;
+    std::shared_ptr<std::string> authError = _ValidateCharacterAccess( pAPICommandCall, EVEAPI::KeyType::Limited, &characterID );
+    if ( authError )
+        return authError;
 
     // Make calls to the APICharacterDB class to grab all data for this call and populate the xml structure with that data
-    uint32 characterID = atoi( pAPICommandCall->find( "characterid" )->second.c_str() );
     std::vector<std::string> skillTypeIDList;
     std::vector<std::string> skillPointsList;
     std::vector<std::string> skillLevelList;
@@ -227,34 +226,18 @@ std::tr1::shared_ptr<std::string> APICharacterManager::_CharacterSheet(const API
     return _GetXMLDocumentString();
 }
 
-std::tr1::shared_ptr<std::string> APICharacterManager::_SkillQueue(const APICommandCall * pAPICommandCall)
+std::shared_ptr<std::string> APICharacterManager::_SkillQueue(const APICommandCall * pAPICommandCall)
 {
     size_t i;
 
-    sLog.Error( "APICharacterManager::_SkillQueue()", "TODO: Insert code to validate userID and apiKey" );
-
     sLog.Debug("APICharacterManager::_SkillQueue()", "EVEmu API - Character Service Manager - CALL: SkillQueue.xml.aspx");
 
-    if ( pAPICommandCall->find( "userid" ) == pAPICommandCall->end() )
-    {
-        sLog.Error( "APICharacterManager::_SkillQueue()", "ERROR: No 'userID' parameter found in call argument list - exiting with error and sending back NOTHING" );
-        return BuildErrorXMLResponse( "106", "Must provide userID parameter for authentication." );
-    }
-
-    if ( pAPICommandCall->find( "apikey" ) == pAPICommandCall->end() )
-    {
-        sLog.Error( "APICharacterManager::_SkillQueue()", "ERROR: No 'apiKey' parameter found in call argument list - exiting with error and sending back NOTHING" );
-        return BuildErrorXMLResponse( "203", "Authentication failure." );
-    }
-
-    if ( pAPICommandCall->find( "characterid" ) == pAPICommandCall->end() )
-    {
-        sLog.Error( "APICharacterManager::_SkillQueue()", "ERROR: No 'characterID' parameter found in call argument list - exiting with error and sending back NOTHING" );
-        return BuildErrorXMLResponse( "105", "Invalid characterID." );
-    }
+    uint32 characterID = 0;
+    std::shared_ptr<std::string> authError = _ValidateCharacterAccess( pAPICommandCall, EVEAPI::KeyType::Limited, &characterID );
+    if ( authError )
+        return authError;
 
     // Make calls to the APICharacterDB class to grab all data for this call and populate the xml structure with that data
-    uint32 characterID = atoi( pAPICommandCall->find( "characterid" )->second.c_str() );
 
     std::map<std::string, std::string> charLearningAttributesString;
     std::map<uint32, uint32> charLearningAttributes;
@@ -274,18 +257,18 @@ std::tr1::shared_ptr<std::string> APICharacterManager::_SkillQueue(const APIComm
     std::vector<std::string> queueSkillSecondaryAttrList;
     std::vector<std::string> queueSkillPointsTrainedList;
 
-    uint32 queueSkillPrimaryAttribute;
-    uint32 queueSkillSecondaryAttribute;
+    uint32 queueSkillPrimaryAttribute = 0;
+    uint32 queueSkillSecondaryAttribute = 0;
     std::vector<uint32> queueSkillStartSP;
     std::vector<uint32> queueSkillEndSP;
-    std::vector<uint64> queueSkillStartTime;
-    std::vector<uint64> queueSkillEndTime;
-    EvilNumber spPerMinute(0.0);
-    EvilNumber skillStartSP(0.0);
-    EvilNumber skillEndSP(0.0);
-    EvilNumber timeNow(0.0);
-    uint64 skillStartTime;
-    uint64 skillEndTime;
+    std::vector<int64> queueSkillStartTime;
+    std::vector<int64> queueSkillEndTime;
+    uint8 spPerMinute = 0;
+    uint32 skillStartSP = 0;
+    uint32 skillEndSP = 0;
+    int64 timeNow = 0;
+    int64 skillStartTime = 0;
+    int64 skillEndTime = 0;
 
     bool status = m_charDB.GetCharacterSkillQueue( characterID, queueOrderList, queueSkillTypeIdList, queueSkillLevelList, queueSkillRankList,
         queueSkillIdList, queueSkillPrimaryAttrList, queueSkillSecondaryAttrList, queueSkillPointsTrainedList );
@@ -294,18 +277,24 @@ std::tr1::shared_ptr<std::string> APICharacterManager::_SkillQueue(const APIComm
 
     if ( status )
     {
-        timeNow = EvilTimeNow();
+        timeNow = static_cast<int64>( GetFileTimeNow() );
         for( i=0; i<queueOrderList.size(); i++ )
         {
-            queueSkillPrimaryAttribute = charLearningAttributes.find( atoi(queueSkillPrimaryAttrList.at(i).c_str()) )->second;
-            queueSkillSecondaryAttribute = charLearningAttributes.find( atoi(queueSkillSecondaryAttrList.at(i).c_str()) )->second;
-            skillStartSP = EvilNumber(atoi( queueSkillPointsTrainedList.at(i).c_str() ));
-            queueSkillStartSP.push_back( static_cast<uint32>( skillStartSP.get_int() ));
-            skillEndSP = SkillPointsAtLevel( atoi(queueSkillLevelList.at(i).c_str()), atoi(queueSkillRankList.at(i).c_str()) );
-            queueSkillEndSP.push_back( static_cast<uint32>( skillEndSP.get_int() ) );
-            spPerMinute = SkillPointsPerMinute( queueSkillPrimaryAttribute, queueSkillSecondaryAttribute );
-            skillStartTime = static_cast<uint64>(SkillStartingTime( skillStartSP, skillEndSP, spPerMinute, timeNow ).get_int());
-            skillEndTime = static_cast<uint64>(SkillEndingTime( skillStartSP, skillEndSP, spPerMinute, timeNow ).get_int());
+            if ( !_LookupLearningAttribute( charLearningAttributes, queueSkillPrimaryAttrList.at(i), &queueSkillPrimaryAttribute )
+              || !_LookupLearningAttribute( charLearningAttributes, queueSkillSecondaryAttrList.at(i), &queueSkillSecondaryAttribute ) )
+            {
+                sLog.Error( "APICharacterManager::_SkillQueue()", "Unknown learning attribute for queue entry %u of character %u", i, characterID );
+                break;
+            }
+
+            skillStartSP = static_cast<uint32>( atoi( queueSkillPointsTrainedList.at(i).c_str() ) );
+            queueSkillStartSP.push_back( skillStartSP );
+            skillEndSP = EvEMath::Skill::PointsAtLevel( atoi(queueSkillLevelList.at(i).c_str()),
+                                                        (float)atof(queueSkillRankList.at(i).c_str()) );
+            queueSkillEndSP.push_back( skillEndSP );
+            spPerMinute = EvEMath::Skill::PointsPerMinute( queueSkillPrimaryAttribute, queueSkillSecondaryAttribute );
+            skillStartTime = EvEMath::Skill::StartTime( skillStartSP, skillEndSP, spPerMinute, timeNow );
+            skillEndTime = EvEMath::Skill::EndTime( skillStartSP, skillEndSP, spPerMinute, timeNow );
             queueSkillStartTime.push_back( skillStartTime );
             queueSkillEndTime.push_back( skillEndTime );
             timeNow = skillEndTime;
@@ -353,32 +342,16 @@ std::tr1::shared_ptr<std::string> APICharacterManager::_SkillQueue(const APIComm
     return _GetXMLDocumentString();
 }
 
-std::tr1::shared_ptr<std::string> APICharacterManager::_SkillInTraining(const APICommandCall * pAPICommandCall)
+std::shared_ptr<std::string> APICharacterManager::_SkillInTraining(const APICommandCall * pAPICommandCall)
 {
-    sLog.Error( "APICharacterManager::_SkillInTraining()", "TODO: Insert code to validate userID and apiKey" );
-
     sLog.Debug("APICharacterManager::_SkillInTraining()", "EVEmu API - Character Service Manager - CALL: SkillInTraining.xml.aspx");
 
-    if ( pAPICommandCall->find( "userid" ) == pAPICommandCall->end() )
-    {
-        sLog.Error( "APICharacterManager::_SkillInTraining()", "ERROR: No 'userID' parameter found in call argument list - exiting with error and sending back NOTHING" );
-        return BuildErrorXMLResponse( "106", "Must provide userID parameter for authentication." );
-    }
-
-    if ( pAPICommandCall->find( "apikey" ) == pAPICommandCall->end() )
-    {
-        sLog.Error( "APICharacterManager::_SkillInTraining()", "ERROR: No 'apiKey' parameter found in call argument list - exiting with error and sending back NOTHING" );
-        return BuildErrorXMLResponse( "203", "Authentication failure." );
-    }
-
-    if ( pAPICommandCall->find( "characterid" ) == pAPICommandCall->end() )
-    {
-        sLog.Error( "APICharacterManager::_SkillInTraining()", "ERROR: No 'characterID' parameter found in call argument list - exiting with error and sending back NOTHING" );
-        return BuildErrorXMLResponse( "105", "Invalid characterID." );
-    }
+    uint32 characterID = 0;
+    std::shared_ptr<std::string> authError = _ValidateCharacterAccess( pAPICommandCall, EVEAPI::KeyType::Limited, &characterID );
+    if ( authError )
+        return authError;
 
     // Make calls to the APICharacterDB class to grab all data for this call and populate the xml structure with that data
-    uint32 characterID = atoi( pAPICommandCall->find( "characterid" )->second.c_str() );
 
     std::map<std::string, std::string> charLearningAttributesString;
     std::map<uint32, uint32> charLearningAttributes;
@@ -398,18 +371,18 @@ std::tr1::shared_ptr<std::string> APICharacterManager::_SkillInTraining(const AP
     std::vector<std::string> queueSkillSecondaryAttrList;
     std::vector<std::string> queueSkillPointsTrainedList;
 
-    uint32 queueSkillPrimaryAttribute;
-    uint32 queueSkillSecondaryAttribute;
+    uint32 queueSkillPrimaryAttribute = 0;
+    uint32 queueSkillSecondaryAttribute = 0;
     std::vector<uint32> queueSkillStartSP;
     std::vector<uint32> queueSkillEndSP;
-    std::vector<uint64> queueSkillStartTime;
-    std::vector<uint64> queueSkillEndTime;
-    EvilNumber spPerMinute(0.0);
-    EvilNumber skillStartSP(0.0);
-    EvilNumber skillEndSP(0.0);
-    EvilNumber timeNow(0.0);
-    uint64 skillStartTime;
-    uint64 skillEndTime;
+    std::vector<int64> queueSkillStartTime;
+    std::vector<int64> queueSkillEndTime;
+    uint8 spPerMinute = 0;
+    uint32 skillStartSP = 0;
+    uint32 skillEndSP = 0;
+    int64 timeNow = 0;
+    int64 skillStartTime = 0;
+    int64 skillEndTime = 0;
 
     bool status = m_charDB.GetCharacterSkillQueue( characterID, queueOrderList, queueSkillTypeIdList, queueSkillLevelList, queueSkillRankList,
         queueSkillIdList, queueSkillPrimaryAttrList, queueSkillSecondaryAttrList, queueSkillPointsTrainedList );
@@ -417,19 +390,32 @@ std::tr1::shared_ptr<std::string> APICharacterManager::_SkillInTraining(const AP
     if ( status )
     {
         sLog.Error( "APICharacterManager::_SkillInTraining()", "INFO: Calculation of Skill End Time based on Effective SP/min does NOT include implants/boosters at this time" );
-        timeNow = EvilTimeNow();
+        timeNow = static_cast<int64>( GetFileTimeNow() );
 
-        queueSkillPrimaryAttribute = charLearningAttributes.find( atoi(queueSkillPrimaryAttrList.at(0).c_str()) )->second;
-        queueSkillSecondaryAttribute = charLearningAttributes.find( atoi(queueSkillSecondaryAttrList.at(0).c_str()) )->second;
-        skillStartSP = EvilNumber(atoi( queueSkillPointsTrainedList.at(0).c_str() ));
-        queueSkillStartSP.push_back( static_cast<uint32>( skillStartSP.get_int() ));
-        skillEndSP = SkillPointsAtLevel( atoi(queueSkillLevelList.at(0).c_str()), atoi(queueSkillRankList.at(0).c_str()) );
-        queueSkillEndSP.push_back( static_cast<uint32>( skillEndSP.get_int() ) );
-        spPerMinute = SkillPointsPerMinute( queueSkillPrimaryAttribute, queueSkillSecondaryAttribute );
-        skillStartTime = static_cast<uint64>(SkillStartingTime( skillStartSP, skillEndSP, spPerMinute, timeNow ).get_int());
-        skillEndTime = static_cast<uint64>(SkillEndingTime( skillStartSP, skillEndSP, spPerMinute, timeNow ).get_int());
-        queueSkillStartTime.push_back( skillStartTime );
-        queueSkillEndTime.push_back( skillEndTime );
+        // An empty queue still reports status==true; .at(0) would throw and kill the API thread.
+        if ( queueOrderList.empty() )
+        {
+            status = false;
+        }
+        else if ( !_LookupLearningAttribute( charLearningAttributes, queueSkillPrimaryAttrList.at(0), &queueSkillPrimaryAttribute )
+               || !_LookupLearningAttribute( charLearningAttributes, queueSkillSecondaryAttrList.at(0), &queueSkillSecondaryAttribute ) )
+        {
+            sLog.Error( "APICharacterManager::_SkillInTraining()", "Unknown learning attribute for character %u", characterID );
+            status = false;
+        }
+        else
+        {
+            skillStartSP = static_cast<uint32>( atoi( queueSkillPointsTrainedList.at(0).c_str() ) );
+            queueSkillStartSP.push_back( skillStartSP );
+            skillEndSP = EvEMath::Skill::PointsAtLevel( atoi(queueSkillLevelList.at(0).c_str()),
+                                                        (float)atof(queueSkillRankList.at(0).c_str()) );
+            queueSkillEndSP.push_back( skillEndSP );
+            spPerMinute = EvEMath::Skill::PointsPerMinute( queueSkillPrimaryAttribute, queueSkillSecondaryAttribute );
+            skillStartTime = EvEMath::Skill::StartTime( skillStartSP, skillEndSP, spPerMinute, timeNow );
+            skillEndTime = EvEMath::Skill::EndTime( skillStartSP, skillEndSP, spPerMinute, timeNow );
+            queueSkillStartTime.push_back( skillStartTime );
+            queueSkillEndTime.push_back( skillEndTime );
+        }
     }
 
     // EXAMPLE:
@@ -440,12 +426,12 @@ std::tr1::shared_ptr<std::string> APICharacterManager::_SkillInTraining(const AP
         {
             if ( status )
             {
-                _BuildSingleXMLTag( "currentTQTime", Win32TimeToString(static_cast<uint64>(timeNow.get_int())) );
+                _BuildSingleXMLTag( "currentTQTime", Win32TimeToString(timeNow) );
                 _BuildSingleXMLTag( "trainingEndTime", Win32TimeToString(skillEndTime) );
                 _BuildSingleXMLTag( "trainingStartTime", Win32TimeToString(skillStartTime) );
                 _BuildSingleXMLTag( "trainingTypeID", queueSkillTypeIdList.at(0) );
-                _BuildSingleXMLTag( "trainingStartSP", std::string(itoa(skillStartSP.get_int())) );
-                _BuildSingleXMLTag( "trainingDestinationSP", std::string(itoa(skillEndSP.get_int())) );
+                _BuildSingleXMLTag( "trainingStartSP", std::string(itoa(skillStartSP)) );
+                _BuildSingleXMLTag( "trainingDestinationSP", std::string(itoa(skillEndSP)) );
                 _BuildSingleXMLTag( "trainingToLevel", queueSkillLevelList.at(0) );
                 _BuildSingleXMLTag( "skillInTraining", "1" );
             }

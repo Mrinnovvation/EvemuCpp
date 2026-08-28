@@ -27,14 +27,22 @@
 
 #include "apiserver/APICorporationManager.h"
 
-APICorporationManager::APICorporationManager(const PyServiceMgr &services)
-: APIServiceManager(services)
+APICorporationManager::APICorporationManager()
+: APIServiceManager()
 {
 }
 
-std::tr1::shared_ptr<std::string> APICorporationManager::ProcessCall(const APICommandCall * pAPICommandCall)
+std::shared_ptr<std::string> APICorporationManager::ProcessCall(const APICommandCall * pAPICommandCall)
 {
     sLog.Debug("APICorporationManager::ProcessCall()", "EVEmu API - Corporation Service Manager");
 
-    return std::tr1::shared_ptr<std::string>(new std::string(""));
+    /* Not implemented yet. Return a well-formed API error rather than an empty
+     * body so callers get a parseable document instead of a truncated response.
+     */
+    const char * handler = "(none)";
+    if ( pAPICommandCall->find( "servicehandler" ) != pAPICommandCall->end() )
+        handler = pAPICommandCall->find( "servicehandler" )->second.c_str();
+
+    sLog.Warning("APICorporationManager::ProcessCall()", "EVEmu API - Corporation Service Manager is not implemented; rejecting '%s'", handler);
+    return BuildErrorXMLResponse( "9999", "EVEmu API Server: Corporation Manager is not implemented." );
 }

@@ -30,7 +30,11 @@
 
 APIServerListener::APIServerListener(boost::asio::io_context& io)
 {
-    _acceptor = new boost::asio::ip::tcp::acceptor(io, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), sConfig.net.apiServerPort));
+#if BOOST_VERSION >= 107400
+    _acceptor = new boost::asio::basic_socket_acceptor<proto>(io, proto::endpoint(proto::v4(), sConfig.net.apiServerPort));
+#else
+    _acceptor = new proto::acceptor(io, proto::endpoint(proto::v4(), sConfig.net.apiServerPort));
+#endif
     sLog.Log("API Server Init", "listening on port %u", (sConfig.net.apiServerPort));
     StartAccept();
 }
@@ -42,15 +46,21 @@ APIServerListener::~APIServerListener()
 
 void APIServerListener::StartAccept()
 {
+#if BOOST_VERSION >= 107400
+    boost::asio::any_io_executor e = _acceptor->get_executor();
+    boost::asio::execution_context &e_context = e.context();
+    auto &context_instance = reinterpret_cast<boost::asio::io_context&>(e_context);
+#else
     boost::asio::executor e = _acceptor->get_executor();
     boost::asio::execution_context &e_context = e.context();
     boost::asio::io_context &context_instance = static_cast<boost::asio::io_context&>(e_context);
+#endif
 
-    std::tr1::shared_ptr<APIServerConnection> connection = APIServerConnection::create(context_instance);
+    std::shared_ptr<APIServerConnection> connection = APIServerConnection::create(context_instance);
     _acceptor->async_accept(connection->socket(), std::bind(&APIServerListener::HandleAccept, this, connection));
 }
 
-void APIServerListener::HandleAccept(std::tr1::shared_ptr<APIServerConnection> connection)
+void APIServerListener::HandleAccept(std::shared_ptr<APIServerConnection> connection)
 {
     connection->Process();
     StartAccept();

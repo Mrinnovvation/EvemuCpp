@@ -26,6 +26,12 @@
 #ifndef __APISERVER__H__INCL__
 #define __APISERVER__H__INCL__
 
+#include <memory>
+
+#include "eve-common.h"
+#include "utils/Singleton.h"
+#include "EVEServerConfig.h"
+
 #include "APIServerListener.h"
 
 class APIServiceManager;
@@ -47,11 +53,11 @@ public:
     APIServer();
     void Run();
     void Stop();
-    void CreateServices(const PyServiceMgr &services);
+    void CreateServices();
 
     std::string& url();
 
-    std::tr1::shared_ptr<std::vector<char> > GetXML(const APICommandCall * pAPICommandCall);
+    std::shared_ptr<std::vector<char> > GetXML(const APICommandCall * pAPICommandCall);
 
     // used when the ImageServer can't find the image requested
     // this way we don't have to transfer over all the static NPC images
@@ -68,7 +74,7 @@ private:
     boost::asio::detail::mutex _limboLock;
     bool runonce;
 
-    std::tr1::shared_ptr<std::string> m_xmlString;
+    std::shared_ptr<std::string> m_xmlString;
 
     std::map<std::string, APIServiceManager *> m_APIServiceManagers;    // We own these
 

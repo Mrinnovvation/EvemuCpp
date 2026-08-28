@@ -27,6 +27,12 @@
 #define __APISERVICEMANAGER__H__INCL__
 
 
+#include "eve-common.h"
+
+#include <stack>
+
+#include <tinyxml.h>
+
 #include "apiserver/APIServiceDB.h"
 
 namespace EVEAPI {
@@ -73,14 +79,39 @@ typedef std::map<std::string, std::string> APICommandCall;
 class APIServiceManager
 {
 public:
-    APIServiceManager(const PyServiceMgr &services);
-    PyServiceMgr& services() { return m_services; }
+    APIServiceManager();
+    virtual ~APIServiceManager() {}
 
     // Common call shared to all derived classes called via polymorphism
-    virtual std::tr1::shared_ptr<std::string> ProcessCall(const APICommandCall * pAPICommandCall);
-    std::tr1::shared_ptr<std::string> BuildErrorXMLResponse(std::string errorCode, std::string errorMessage);
+    virtual std::shared_ptr<std::string> ProcessCall(const APICommandCall * pAPICommandCall);
+    std::shared_ptr<std::string> BuildErrorXMLResponse(std::string errorCode, std::string errorMessage);
 
 protected:
+    /**
+     * @brief Verifies the userID/apiKey pair carried by an API query.
+     *
+     * @param[in]  pAPICommandCall The decoded query parameters.
+     * @param[in]  keyType         EVEAPI::KeyType::Limited or ::Full.
+     * @param[out] accountID       If non-null, receives the authenticated accountID.
+     *
+     * @retval null      The call is authenticated; carry on.
+     * @retval non-null  An error document to return to the caller verbatim.
+     */
+    std::shared_ptr<std::string> _ValidateAPIQuery(const APICommandCall * pAPICommandCall,
+                                                   uint32 keyType, uint32 * accountID = nullptr);
+
+    /**
+     * @brief As _ValidateAPIQuery(), and additionally checks that the requested
+     *        characterID belongs to the authenticated account.
+     *
+     * @param[out] characterID Receives the validated characterID.
+     *
+     * @retval null      The call is authorised for that character.
+     * @retval non-null  An error document to return to the caller verbatim.
+     */
+    std::shared_ptr<std::string> _ValidateCharacterAccess(const APICommandCall * pAPICommandCall,
+                                                          uint32 keyType, uint32 * characterID);
+
     bool _AuthenticateUserNamePassword(std::string userName, std::string password);
     bool _AuthenticateFullAPIQuery(std::string userID, std::string apiKey);
     bool _AuthenticateLimitedAPIQuery(std::string userID, std::string apiKey);
@@ -97,10 +128,9 @@ protected:
     void _CloseXMLTag();
     void _BuildSingleXMLTag(std::string name, std::string param);
     void _BuildErrorXMLTag(std::string code, std::string param);
-    std::tr1::shared_ptr<std::string> _GetXMLDocumentString();
+    std::shared_ptr<std::string> _GetXMLDocumentString();
 
     APIServiceDB m_db;
-    PyServiceMgr m_services;
 
     TiXmlDocument _XmlDoc;
     TiXmlElement * _pXmlDocOuterTag;

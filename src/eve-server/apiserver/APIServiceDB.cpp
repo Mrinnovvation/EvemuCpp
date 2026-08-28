@@ -31,16 +31,93 @@ APIServiceDB::APIServiceDB()
 {
 }
 
+bool APIServiceDB::GetAccountIDForCharacter(uint32 characterID, uint32 * accountID)
+{
+    DBQueryResult res;
+
+    if ( !sDatabase.RunQuery(res,
+        "SELECT"
+        "    accountID "
+        " FROM character_ "
+        " WHERE characterID = %u", characterID ))
+    {
+        sLog.Error( "APIServiceDB::GetAccountIDForCharacter()", "Error in query: %s.", res.error.c_str() );
+        return false;
+    }
+
+    DBResultRow row;
+    if ( !res.GetRow(row) )
+        return false;           // no such character
+
+    if ( row.IsNull(0) )
+        return false;           // NPC / unowned character
+
+    *accountID = row.GetUInt(0);
+    return true;
+}
+
+bool APIServiceDB::AuthenticateAccount(std::string username, std::string password, uint32 * accountID, int64 * role)
+{
+    /* Deliberately does NOT go through ServiceDB::GetAccountInformation(): that call
+     * creates a new account when autoAccountRole is set, which must never happen as a
+     * side effect of an API query. This is a plain read-only lookup.
+     */
+    DBQueryResult res;
+    std::string eUsername;
+    sDatabase.DoEscapeString(eUsername, username);
+
+    if ( !sDatabase.RunQuery(res,
+        "SELECT"
+        "    accountID, password, hash, role, banned "
+        " FROM account "
+        " WHERE accountName='%s'" , eUsername.c_str() ))
+    {
+        sLog.Error( "APIServiceDB::AuthenticateAccount()", "Error in query: %s.", res.error.c_str() );
+        return false;
+    }
+
+    DBResultRow row;
+    if ( !res.GetRow(row) )
+        return false;           // no such account
+
+    if ( row.GetInt(4) != 0 )
+        return false;           // banned
+
+    const std::string dbPassword = (row.IsNull(1) ? "" : row.GetText(1));
+    const std::string dbHash     = (row.IsNull(2) ? "" : row.GetText(2));
+
+    bool authenticated = false;
+    if ( !dbPassword.empty() )
+        authenticated = (dbPassword == password);
+
+    if ( !authenticated && !dbHash.empty() )
+    {
+        // Fall back to the SHA-1 hash the client logs in with.
+        std::string passHash;
+        if ( PasswordModule::GeneratePassHash( username, password, passHash ) )
+            authenticated = (dbHash == passHash);
+    }
+
+    if ( !authenticated )
+        return false;
+
+    *accountID = row.GetUInt(0);
+    *role = row.GetInt64(3);
+    return true;
+}
+
 bool APIServiceDB::GetAccountIdFromUsername(std::string username, std::string * accountID)
 {
     DBQueryResult res;
+    std::string eUsername;
+    sDatabase.DoEscapeString(eUsername, username);
 
     // Find accountID in 'account' table using accountName:
     if ( !sDatabase.RunQuery(res,
         "SELECT"
         "    accountID "
         " FROM account "
-        " WHERE accountName='%s'" , username.c_str() ))
+        " WHERE accountName='%s'" , eUsername.c_str() ))
     {
         sLog.Error( "APIServiceDB::GetAccountIdFromUsername()", "Cannot find accountID for username %s", username.c_str() );
         return false;
@@ -60,13 +137,15 @@ bool APIServiceDB::GetAccountIdFromUsername(std::string username, std::string * 
 bool APIServiceDB::GetAccountIdFromUserID(std::string userID, uint32 * accountID)
 {
     DBQueryResult res;
+    std::string eUserID;
+    sDatabase.DoEscapeString(eUserID, userID);
 
     // Find accountID in 'accountapi' table using userID:
     if ( !sDatabase.RunQuery(res,
         "SELECT"
         "    accountID "
         " FROM accountApi "
-        " WHERE userID='%s'" , userID.c_str() ))
+        " WHERE userID='%s'" , eUserID.c_str() ))
     {
         sLog.Error( "APIServiceDB::GetAccountIdFromUserID()", "Cannot find accountID for userID %s", userID.c_str() );
         return false;
@@ -87,13 +166,15 @@ bool APIServiceDB::GetApiAccountInfoUsingAccountID(std::string accountID, uint32
     std::string * apiLimitedKey, uint32 * apiRole)
 {
     DBQueryResult res;
+    std::string eAccountID;
+    sDatabase.DoEscapeString(eAccountID, accountID);
 
     // Find userID, fullKey, limitedKey, and apiRole from 'accountApi' table using accountID obtained from 'account' table:
     if ( !sDatabase.RunQuery(res,
         "SELECT"
         "    userID, fullKey, limitedKey, apiRole "
         " FROM accountApi "
-        " WHERE accountID='%s'" , accountID.c_str() ))
+        " WHERE accountID='%s'" , eAccountID.c_str() ))
     {
         sLog.Error( "APIServiceDB::GetApiAccountInfoUsingAccountID()", "Cannot find accountID '%s' in 'accountApi' table", accountID.c_str() );
         return false;
@@ -116,13 +197,15 @@ bool APIServiceDB::GetApiAccountInfoUsingAccountID(std::string accountID, uint32
 bool APIServiceDB::GetApiAccountInfoUsingUserID(std::string userID, std::string * apiFullKey, std::string * apiLimitedKey, uint32 * apiRole)
 {
     DBQueryResult res;
+    std::string eUserID;
+    sDatabase.DoEscapeString(eUserID, userID);
 
     // Find fullKey, limitedKey, and apiRole from 'accountApi' table using userID supplied from an API query string:
     if ( !sDatabase.RunQuery(res,
         "SELECT"
         "    fullKey, limitedKey, apiRole "
         " FROM accountApi "
-        " WHERE userID='%s'" , userID.c_str() ))
+        " WHERE userID='%s'" , eUserID.c_str() ))
     {
         sLog.Error( "APIServiceDB::GetApiAccountInfoUsingUserID()", "Cannot find userID '%s' in 'accountApi' table", userID.c_str() );
         return false;

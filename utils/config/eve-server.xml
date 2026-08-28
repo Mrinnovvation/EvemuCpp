@@ -80,6 +80,8 @@ boolean can use either 0/1 OR true/false.
         <saveOnUpdate>true</saveOnUpdate><!-- bool - save items when values or attributes updated -->
         <shipBoardDistance>500</shipBoardDistance><!-- int  - max distance to board ship in space (5c default) -->
         <highSecCyno>false</highSecCyno><!-- bool - allow Cynosural fields to be created in high security space -->
+        <highSecDoomsday>false</highSecDoomsday><!-- bool - allow titan doomsday devices to be fired in empire space -->
+        <doomsdayCapitalOnly>false</doomsdayCapitalOnly><!-- bool - restrict titan doomsday devices to capital-sized targets, as CCP did -->
     </world>
 
     <rates>

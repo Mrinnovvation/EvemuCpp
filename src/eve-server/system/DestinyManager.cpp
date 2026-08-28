@@ -613,7 +613,11 @@ void DestinyManager::CheckBump()
         if (cur == pClient)
             continue;
         distance = pos.distance(cur->GetShipSE()->GetPosition());
-        distance -= (mySE->GetRadius() - cur->GetShipSE()->GetRadius());
+        //  surface separation is the centre distance less the SUM of both radii.  subtracting the
+        //   difference made this wildly asymmetric for mismatched hulls - a titan (radius ~7500)
+        //   next to a frigate (27) read as ~7.5km INSIDE bump range every tick, while the frigate
+        //   read ~7.5km outside it and never bumped at all.
+        distance -= (mySE->GetRadius() + cur->GetShipSE()->GetRadius());
         if (distance < BUMP_DISTANCE) {
             Bump(cur->GetShipSE());
             m_bump = true;
@@ -1094,7 +1098,12 @@ void DestinyManager::Follow() {
     //  Follow is also used by client as AlignTo.
     const GPoint& target_point = m_targetEntity.second->GetPosition();
     GVector heading(m_position, target_point);
-    m_targetDistance = (uint32)(heading.length() - m_radius);
+    //  follow/approach distances are surface-to-surface, so the TARGET's radius counts too.
+    //   ignoring it meant approaching anything large stopped one target-radius too late (a titan
+    //   is 6800-9000m), driving you into the hull.  m_targetDistance is a double - the old uint32
+    //   cast also wrapped any negative (already inside the radius) into a huge positive.
+    double surfaceDist = heading.length() - m_radius - m_targetEntity.second->GetRadius();
+    m_targetDistance = (surfaceDist > 0.0 ? surfaceDist : 0.0);
 
     if (m_targetDistance < m_followDistance) {
         if (mySE->HasPilot())

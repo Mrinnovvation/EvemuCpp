@@ -199,7 +199,10 @@ void ModuleManager::Process()
 
 bool ModuleManager::IsSlotOccupied(EVEItemFlags flag)
 {
-    return (m_modules.find((uint8)flag)->second != nullptr);
+    //  find() returns end() for any slot Initialize() didn't insert - dereferencing that is UB.
+    //   mirrors the guard GetModule(EVEItemFlags) already uses.
+    std::map<uint8, GenericModule*>::const_iterator itr = m_modules.find((uint8)flag);
+    return ((itr != m_modules.end()) and (itr->second != nullptr));
 }
 
 void ModuleManager::RemoveTarget(SystemEntity* pSE) {
@@ -320,7 +323,9 @@ GenericModule* ModuleManager::GetRandModule()
     if (modVec.empty () == true)
         return nullptr;
 
-    return modVec[MakeRandomInt(0, modVec.size())];
+    //  MakeRandomInt's upper bound is INCLUSIVE, so the old call could index modVec[size()] -
+    //   one past the end - and hand DamageModule() a garbage pointer to dereference.
+    return modVec[MakeRandomInt(0, modVec.size() - 1)];
 }
 
 bool ModuleManager::InstallRig(ModuleItemRef mRef, EVEItemFlags flag) {
@@ -809,7 +814,7 @@ void ModuleManager::RepairModule(uint32 itemID, EvilNumber amount)
 
 void ModuleManager::RepairModule(GenericModule* pMod, EvilNumber amount)
 {
-    if (pMod != nullptr){
+    if (pMod == nullptr) {
         _log(MODULE__ERROR, "MM::RepairModule() - Called on module that is not loaded.");
         return;
     }
@@ -1145,9 +1150,9 @@ void ModuleManager::UnloadModule(GenericModule* pMod) {
 void ModuleManager::UnloadWeapons()
 {
     std::map<uint8, GenericModule*>::iterator mItr;
-    for (uint8 i = flagHiSlot0; 1 < flagFixedSlot; ++i) {
+    for (uint8 i = flagHiSlot0; i < flagFixedSlot; ++i) {
         mItr = m_modules.find((uint8)i);
-        if (mItr->second != nullptr)
+        if ((mItr != m_modules.end()) and (mItr->second != nullptr))
             UnloadCharge(mItr->second);
     }
 }
@@ -1523,8 +1528,12 @@ void ModuleManager::addModuleRef(EVEItemFlags flag, GenericModule* pMod)
     }
 
     // update available slots
+    //  a ship being fitted in a hangar (or loaded before its pilot is attached) has no pilot,
+    //   so GetPilot() must be tested before use - AddModule() already guards it this way.
+    Client* pPilot = (pShipItem->HasPilot() ? pShipItem->GetPilot() : nullptr);
+    bool update = ((pPilot != nullptr) and !pPilot->IsLogin());
+
     if (pMod->isHighPower()) {
-        bool update = !pShipItem->GetPilot()->IsLogin();
         if (pMod->isTurretFitted()) {
             // apply config modifier, if applicable
             pMod->GetSelf()->MultiplyAttribute(AttrSpeed, sConfig.rates.turretRoF);
@@ -1545,7 +1554,6 @@ void ModuleManager::addModuleRef(EVEItemFlags flag, GenericModule* pMod)
         --m_SubSystemSlots;
     } else if (pMod->isRig()) {
         --m_RigSlots;
-        bool update = !pShipItem->GetPilot()->IsLogin();
         pShipItem->SetAttribute(AttrUpgradeLoad, (pShipItem->GetAttribute(AttrUpgradeLoad) + pMod->GetAttribute(AttrUpgradeCost)), update);
         pShipItem->SetAttribute(AttrUpgradeSlotsLeft, (pShipItem->GetAttribute(AttrUpgradeSlotsLeft) -1), update);
     }

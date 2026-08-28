@@ -119,7 +119,10 @@ bool SystemEntity::ApplyDamage(Damage &d) {
     }
 
     int8 damageID(0);
-    switch (d.weaponRef->groupID()) {
+    /*  Damage's fatal-blow ctor (Damage.h:38-39) deliberately leaves weaponRef null, so this
+     *   must not be dereferenced blind - fall through to the generic damage message instead. */
+    uint16 weaponGroupID((d.weaponRef.get() != nullptr) ? d.weaponRef->groupID() : 0);
+    switch (weaponGroupID) {
         case EVEDB::invGroups::Missile_Launcher_Assault:
         case EVEDB::invGroups::Missile_Launcher_Bomb:       // not sure here
         case EVEDB::invGroups::Missile_Launcher_Citadel:
@@ -282,7 +285,11 @@ bool SystemEntity::ApplyDamage(Damage &d) {
         m_killed = true;
 
         // OnNotify:OnTransmission -  (235799, `You have killed this defenseless NPC, bully.  Also, you have killed this NPC and are receiving this message.`)
-        m_destiny->SendTerminalExplosion(m_self->itemID(), m_bubble->GetID(), isGlobal());
+        //  both are nullable on a live SE (SystemBubble::Remove nulls m_bubble when an entity
+        //   leaves a bubble), and this is the FIRST statement on the killing blow.  NPC::Killed
+        //   and ShipSE::Killed - called two lines below - already open with exactly this guard.
+        if ((m_destiny != nullptr) and (m_bubble != nullptr))
+            m_destiny->SendTerminalExplosion(m_self->itemID(), m_bubble->GetID(), isGlobal());
 
         Killed(d);  // this must NOT remove dead SE from system.
         SystemEntity::Killed(d);    // this removes dead SE from system then deletes itemRef and all its contents
@@ -296,7 +303,7 @@ bool SystemEntity::ApplyDamage(Damage &d) {
             //  notify player of damage received
             PyDict* dict = new PyDict();
                 dict->SetItemString("source", new PyInt(d.srcSE->GetID()));
-                dict->SetItemString("weapon", new PyInt((d.chargeRef.get() != nullptr ? d.chargeRef->typeID() : d.weaponRef->typeID())));
+                dict->SetItemString("weapon", new PyInt((d.chargeRef.get() != nullptr ? d.chargeRef->typeID() : (d.weaponRef.get() != nullptr ? d.weaponRef->typeID() : 0))));
                 dict->SetItemString("target", new PyInt(GetID()));
                 dict->SetItemString("damage", new PyFloat(total_damage));
             PyTuple* tuple = new PyTuple(3);
@@ -308,7 +315,7 @@ bool SystemEntity::ApplyDamage(Damage &d) {
         if (d.srcSE->HasPilot()) {
             //notify to player of damage done:
             PyDict* dict = new PyDict();
-                dict->SetItemString("weapon", new PyInt((d.chargeRef.get() != nullptr ? d.chargeRef->typeID() : d.weaponRef->typeID())));
+                dict->SetItemString("weapon", new PyInt((d.chargeRef.get() != nullptr ? d.chargeRef->typeID() : (d.weaponRef.get() != nullptr ? d.weaponRef->typeID() : 0))));
                 dict->SetItemString("target", new PyInt(GetID()));
                 dict->SetItemString("damage", new PyFloat(total_damage));
             PyTuple* tuple = new PyTuple(3);
@@ -483,7 +490,7 @@ void ShipSE::Killed(Damage &fatal_blow) {
         data.finalAllianceID = killer->GetAllianceID();
         data.finalFactionID = (killer->GetWarFactionID() > 500021 ? 500021 : killer->GetWarFactionID());
         data.finalShipTypeID = killer->GetTypeID();
-        data.finalWeaponTypeID = fatal_blow.weaponRef->typeID();
+        data.finalWeaponTypeID = (fatal_blow.weaponRef.get() != nullptr ? fatal_blow.weaponRef->typeID() : 0);
         data.finalSecurityStatus = 0;   /* fix this */
         data.finalDamageDone = fatal_blow.GetTotal();
 

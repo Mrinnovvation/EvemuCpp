@@ -21,7 +21,7 @@ class ActiveModule : public GenericModule
 {
 public:
     ActiveModule(ModuleItemRef mRef, ShipItemRef sRef);
-    virtual             ~ActiveModule()                 { /* Do nothing here */ }
+    virtual             ~ActiveModule();
 
     /* class type pointer querys, public for anyone to access. */
     virtual ActiveModule* GetActiveModule()             { return this; }
@@ -90,6 +90,11 @@ protected:
 
     /* for modules that use charges */
     void                ConsumeCharge();                // common code to reduce ammo by one unit.
+
+    /* for modules that consume bulk items per cycle (AttrConsumptionType/Quantity).
+     *  capital modules are fuelled from the ship's fuel bay, everything else from cargo. */
+    bool                FindConsumable(uint16 typeID, uint32 qtyNeed, EVEItemFlags& holdFlag);
+    bool                ConsumeFromHold(uint16 typeID, uint32 qtyNeed, EVEItemFlags holdFlag);
 
     uint32              GetRemainingCycleTimeMS()       { return m_timer.GetRemainingTime(); }
 

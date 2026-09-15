@@ -111,9 +111,9 @@ BeyonceBound::BeyonceBound(EVEServiceManager& mgr, BeyonceService& parent, Clien
     this->Add("CmdJumpThroughAlliance", &BeyonceBound::CmdJumpThroughAlliance);
     this->Add("CmdJumpThroughCorporationStructure", &BeyonceBound::CmdJumpThroughCorporationStructure);
 
+    // 2026-09-14 20:19 -0400 | theocheesecake: Mark the binding ready; let the login timer send the initial state
+    // after the constructor and bind response finish, not from this constructor.
     client->SetBeyonce(true);
-    if (client->IsLogin() and !client->IsSetStateSent())
-        client->SetBallPark();
 
     this->m_bookmark = this->GetServiceManager().Lookup <BookmarkService>("bookmark");
 }

@@ -488,8 +488,17 @@ void Client::ProcessClient() {
                 } break;
                 case Player::State::Login: {
                     _log(CLIENT__TIMER, "ProcessClient()::CheckState():  case: Login");
-                    m_login = false;
+                    // 2026-09-14 20:19 -0400 | theocheesecake: Wait for the movement binding before starting login warp.
+                    if (!m_beyonce) {
+                        SetStateTimer(Player::State::Login, Player::Timer::Default);
+                        break;
+                    }
                     SetBallPark();
+                    if (!m_setStateSent) {
+                        SetStateTimer(Player::State::Login, Player::Timer::Default);
+                        break;
+                    }
+                    m_login = false;
                     if (sDataMgr.IsSolarSystem(m_locationID)) {
                         WarpIn();
                     }
@@ -595,18 +604,10 @@ void Client::UpdateBubble() {
 // is immediately moved to a position around 0.5 AU away from their logged-out
 // position.
 //
-// However, merely setting the position isn't enough. The client needs to
-// subsequently synchronize the state of the player & the surrounding bubble
-// with the server, so `UpdateBubble` is called. This is important because
-// during the process of establishing the warp vector, the player's ship is
-// going to be aligning to warp for a few seconds, and so the client needs to
-// know what's in its current bubble for that duration.
-//
-// During the development of `WarpIn()`, it was observed that the behavior of
-// the ship was inconsistent if `Destiny->WarpTo()` was called immediately after
-// the above position change and `UpdateBubble` calls. So instead, the session
-// state timer is set to 0, and the player's client state is set to `LoginWarp`,
-// which allows the warp to get processed on the next server tick.
+// The Login handler waits for the movement-service binding and sends the
+// initial system snapshot through SetBallPark before calling this method.
+// LoginWarp is scheduled with the state timer so movement begins later,
+// after the initial state has been queued for transmission.
 //
 // See: `Client::IsLoginWarping`
 //
@@ -620,14 +621,10 @@ void Client::WarpIn() {
         m_ship->SetFlag(flagNone);
     }
 
-    UpdateBubble();
-
-    // This will queue up the login warp-in on the next server tick. Calling
-    // SetStateTimer allows it to be processed on the next tick instead of
-    // getting timed out and ignored by a session change timer.
-    SetStateTimer(0);
-
-    m_clientState = Player::State::LoginWarp;
+    // 2026-09-14 20:19 -0400 | theocheesecake: The Login handler has sent the full initial snapshot through SetBallPark.
+    // Do not send a second SetState plus queued AddBalls through UpdateBubble here.
+    // Explicitly schedule LoginWarp using the existing default delay.
+    SetStateTimer(Player::State::LoginWarp, Player::Timer::Default);
 }
 
 void Client::WarpOut() {

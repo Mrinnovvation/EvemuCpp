@@ -779,7 +779,28 @@ PyResult BeyonceBound::CmdStargateJump(PyCallArgs &call, PyInt* fromStargateID, 
         codelog(CLIENT__ERROR, "%s: Client has no destiny manager!", call.client->GetName());
         sLog.Warning("NavDebug", "%s: REJECT CmdStargateJump reason=no-destiny", call.client->GetName());
         return PyStatic.NewNone();
-    } else if (pDestiny->IsWarping()) {
+    /*  IsWarpEnding() carves out the tail of the warp.  The server decelerates a
+     *  warp on 1Hz tics while the client simulates its own copy smoothly, so the
+     *  client finishes warping, sees itself on the gate and asks to jump up to a
+     *  tic before WarpStop() runs here.  Rejecting that -- which is what plain
+     *  IsWarping() did -- loses an unwinnable race:
+     *
+     *      22:12:03  RECEIVE CmdStargateJump  AP=1
+     *      22:12:03  REJECT  reason=warping
+     *      22:12:03  Warp complete  [distLeft:1.0]
+     *
+     *  one metre of warp left, and the request arrived in the same second as the
+     *  warp that was still nominally running.  The client took the refusal as
+     *  final, dropped autopilot and never asked again, which is the autopilot that
+     *  disengages on reaching the gate and never jumps.
+     *
+     *  Accepting is safe: StargateJump() only records the destination and starts
+     *  the jump timer, it does not move the ship, and the arrival path already
+     *  calls Halt(), which deletes m_warpState.  A warp with real distance left
+     *  is still refused, since the decel curve only passes inside the ship's own
+     *  stopping distance in its final second.
+     */
+    } else if (pDestiny->IsWarping() and !pDestiny->IsWarpEnding()) {
         call.client->SendNotifyMsg( "You can't do this while warping");
         sLog.Warning("NavDebug", "%s: REJECT CmdStargateJump reason=warping", call.client->GetName());
         return PyStatic.NewNone();

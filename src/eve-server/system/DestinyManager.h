@@ -157,6 +157,15 @@ public:
     bool IsFollowing()                                  { return (m_ballMode == Destiny::Ball::Mode::FOLLOW); }
     //bool IsJumping()                                  { return (m_ballMode == Destiny::Ball::Mode::STOP); }
     bool IsWarping()                                    { return (m_warpState ? true : false); }
+    /*  True only in the last moments of a warp, once the decel curve has all but
+     *  arrived.  Warp bookkeeping here advances at 1Hz while the client simulates
+     *  smoothly from the WarpTo it was handed, so the client reaches the end of
+     *  its own curve -- and acts on it -- up to a full tic before WarpStop() runs.
+     *  Callers that refuse an action "while warping" use this to tell a genuine
+     *  mid-warp request from one that is merely early by a tic.
+     */
+    bool IsWarpEnding()                                 { return ((m_warpState != nullptr) and m_warpState->decel
+                                                                  and (m_targetDistance <= (double)m_speedToLeaveWarp * m_shipAgility)); }
     bool IsCloaked()                                    { return m_cloaked; }
     bool IsTurning()                                    { return m_turning; }
     bool IsTractored()                                  { return m_tractored; }

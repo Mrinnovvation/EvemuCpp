@@ -868,8 +868,12 @@ void DestinyManager::MoveObject() {
         } else {
             //ship has reached full stop
             if (is_log_enabled(DESTINY__MOVE_TRACE))
-                _log(DESTINY__MOVE_TRACE, "Destiny::MoveObject() - %s(%u) is at full stop after %.3f seconds.", \
-                    mySE->GetName(), mySE->GetID(), timeStamp);
+                _log(DESTINY__MOVE_TRACE, "Destiny::MoveObject() - %s(%u) is at full stop after %.3f seconds."
+                    "  [pos:%.0f,%.0f,%.0f targ:%.0f,%.0f,%.0f distToTarg:%.1f]", \
+                    mySE->GetName(), mySE->GetID(), timeStamp,
+                    m_position.x, m_position.y, m_position.z,
+                    m_targetPoint.x, m_targetPoint.y, m_targetPoint.z,
+                    m_position.distance(m_targetPoint));
             Halt();
             return;
         }
@@ -1893,13 +1897,34 @@ void DestinyManager::WarpDecel(uint16 sec_into_warp) {
                 mySE->GetName(), mySE->GetID(), decelTime, sec_into_warp, currentShipSpeed, m_targetDistance);
 
     WarpUpdate(currentShipSpeed);
-    // Fire WarpStop when remaining distance equals the GOTO stopping distance.
-    // UpdateVelocity() always caps exit speed to m_speedToLeaveWarp, so the
-    // stopping distance is fixed: m_speedToLeaveWarp * m_shipAgility.
-    // Triggering early leaves exactly that much runway so GOTO decel coasts
-    // the ship to a halt at m_targetPoint instead of overshooting by that amount.
-    double stoppingDist = static_cast<double>(m_speedToLeaveWarp) * m_shipAgility;
-    if (currentShipSpeed <= m_speedToLeaveWarp || (m_targetDistance > 0.0 && m_targetDistance <= stoppingDist))
+    /*  Leave warp once the decel curve has actually brought the ship down to a
+     *  sub-warp speed.  Nothing else is a safe test.
+     *
+     *  There used to be a second, distance-based clause here -- bail out when
+     *  m_targetDistance falls under m_speedToLeaveWarp * m_shipAgility -- whose
+     *  premise was that the ship exits at m_speedToLeaveWarp and so needs exactly
+     *  that much runway to coast to a halt on the target instead of sailing past
+     *  it.  The premise does not hold, because speed and distance come off two
+     *  independent curves:
+     *
+     *      m_targetDistance  = decelDist * e^-t
+     *      currentShipSpeed  = warpSpeed * e^-t
+     *
+     *  so speed/distance is the constant warpSpeed/decelDist -- 113 m/s per metre
+     *  on a 40 AU warp, where warpSpeed is 1 AU/s and decelDist is e^21.  The
+     *  clause therefore fired at 403m out with the ship still doing 45,762 m/s,
+     *  three orders of magnitude above the m_speedToLeaveWarp it had assumed.
+     *  Measured against both arrivals in one log: the warp that exited at 379 m/s
+     *  put the pilot on the gate and jumped, and the one that exited at 45,762 m/s
+     *  left them 70-80km past it with autopilot dropped.
+     *
+     *  The speed test is self-consistent -- it is the same curve on both sides --
+     *  and reaches m_speedToLeaveWarp about a metre off the target point.  The
+     *  ship then coasts the usual m_speedToLeaveWarp * m_shipAgility beyond it;
+     *  if that overshoot is worth removing, it belongs in InitWarp() as a shorter
+     *  aim point, not in a mid-decel bail-out at warp speed.
+     */
+    if (currentShipSpeed <= m_speedToLeaveWarp)
         WarpStop(currentShipSpeed);
 }
 

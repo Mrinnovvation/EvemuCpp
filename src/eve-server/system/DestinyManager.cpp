@@ -919,14 +919,38 @@ void DestinyManager::MoveObject() {
         speed = (m_maxShipSpeed * m_activeSpeedFraction);
     }
 
-    // ships tend to "level out" when stopping.  try to mimic that here (wip)
-    // this will also need *something* with ship agility
+    /*  Ships tend to "level out" when stopping.  try to mimic that here (wip)
+     *  this will also need *something* with ship agility
+     *
+     *  Renormalize: m_shipHeading is a unit direction, and nudging one component
+     *  of it without restoring the length leaves a vector that is merely short.
+     *  Measured off a warp down the vector (0.0588, 0.9799, 0.1908): 17 stopping
+     *  tics took y to 0.1299 and left x and z untouched, for a heading of length
+     *  0.238 -- exactly what Halt() logged as "0.059,0.130,0.191".
+     *
+     *  Everything downstream reads that as direction AND magnitude:
+     *    - MoveObject() moves the ship m_shipHeading * ticDistance, so it crawls
+     *      at 24% of the speed it reports -- 73 m/s while the client shows 306.
+     *    - IsTurn() and the warp-align gate in ProcessState() take acos() of
+     *      toVec.dotProduct(m_shipHeading).  A short heading caps that dot at its
+     *      own length, so a perfectly aligned ship measures acos(0.238) = 76deg
+     *      and can never satisfy either WARP_ALIGNMENT (6deg) or TURN_ALIGNMENT
+     *      (4deg).  The warp is accepted, the client says "warp drive active",
+     *      and InitWarp() is then unreachable for as long as the ship is pointed
+     *      that way.
+     *
+     *  Guard the degenerate case: y is the only component touched, so a heading
+     *  of pure +/-y shrinks toward the zero vector, which has no direction to
+     *  restore.
+     */
     if (m_stop and (m_timeFraction > 0.5f)) {
         if (m_shipHeading.y < -0.15f) {
             m_shipHeading.y += 0.05f;
         } else if (m_shipHeading.y > 0.15f) {
             m_shipHeading.y -= 0.05f;
         }
+        if (m_shipHeading.length() > 0.0001)
+            m_shipHeading.normalize();
     }
 
     if (m_orbiting)
@@ -1205,28 +1229,34 @@ void DestinyManager::Follow() {
 
     if (rawDist <= (double)m_followDistance) {
         if (mySE->HasPilot() and mySE->GetPilot()->IsAutoPilot()) {
-            /*  Autopilot has arrived.  Halt the ship like any other follower, then
-             *  put the autopilot flag back, because Stop() clears it and the client
-             *  needs it set to go on and issue the jump.
+            /*  Autopilot has arrived.  Crawl the last of the way in, and -- the part
+             *  that was missing -- fall through to the MoveObject() at the end of
+             *  this method so the ship actually gets integrated.
              *
-             *  This branch used to be SetSpeedFraction(0.1) followed by a return,
-             *  and that return skipped the MoveObject() at the end of this method.
-             *  Nothing then advanced the ship server-side, while the client -- told
-             *  "10% throttle" and never corrected -- kept dead-reckoning it forward
-             *  at the last velocity the server had broadcast.  Measured on a gate
-             *  approach: 30 consecutive tics logging the same position to the metre
-             *  with vel:231.17 every time, while the pilot watched the gate recede
-             *  to 24km and the client gave up and dropped autopilot by itself.  No
-             *  jump can be issued while the two sides disagree about where the ship
-             *  is, so this desync defeats everything downstream of it.
+             *  This branch used to return right here.  Nothing then advanced the ship
+             *  server-side, while the client -- told "10% throttle" and never
+             *  corrected -- kept dead-reckoning it forward at the last velocity the
+             *  server had broadcast.  Measured on a gate approach: 30 consecutive
+             *  tics logging the same position to the metre with vel:231.17 every
+             *  time, while the pilot watched the gate recede to 24km and the client
+             *  gave up and dropped autopilot by itself.  No jump can be issued while
+             *  the two sides disagree about where the ship is, so this one desync
+             *  defeats everything downstream of it.  Upstream's (846c40060, 2021),
+             *  and latent there: it needs rawDist <= m_followDistance to be reached
+             *  and held, which only happens once a warp exit leaves the ship sitting
+             *  on the target.
              *
-             *  The bug is upstream's (846c40060, 2021) and latent there: it needs
-             *  rawDist <= m_followDistance to be reached and held, which only
-             *  happens once a warp exit leaves the ship sitting on the target.
+             *  Stop() is deliberately NOT used here, tempting as it looks: it sends
+             *  CmdStop, and the client treats that destiny update as a command to
+             *  switch autopilot off -- see the note in WarpTo() about the client's
+             *  "special checks for auto-disable by destiny update", and the STOP case
+             *  in ProcessState(), which calls Halt() for exactly this reason.
+             *  Re-setting the server-side flag afterwards does not help, because it
+             *  is the client that has given up: autopilot engaged, announced the
+             *  gate, then said "disabled" in the same breath.
              */
-            Stop();
-            mySE->GetPilot()->SetAutoPilot(true);
-            _log(AUTOPILOT__TRACE, "DestinyManager::Follow() - Target within FollowDistance.  Stopping, autopilot held."
+            SetSpeedFraction(0.1);
+            _log(AUTOPILOT__TRACE, "DestinyManager::Follow() - Target within FollowDistance.  SpeedFraction = 0.1."
                     "  [rawDist:%.1f followDist:%u centerDist:%.1f myRadius:%.1f targRadius:%.1f"
                     "  pos:%.0f,%.0f,%.0f targ:%.0f,%.0f,%.0f vel:%.2f]", \
                     rawDist, m_followDistance, heading.length(), m_radius, m_targetEntity.second->GetRadius(),

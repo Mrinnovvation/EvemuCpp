@@ -1185,16 +1185,25 @@ void DestinyManager::Follow() {
     //  Follow is also used by client as AlignTo.
     const GPoint& target_point = m_targetEntity.second->GetPosition();
     GVector heading(m_position, target_point);
-    //  follow/approach distances are surface-to-surface, so the TARGET's radius counts too.
-    //   ignoring it meant approaching anything large stopped one target-radius too late (a titan
-    //   is 6800-9000m), driving you into the hull.  m_targetDistance is a double - the old uint32
-    //   cast also wrapped any negative (already inside the radius) into a huge positive.
-    //  (merge: rumpel/master clamped the same negative wrap without the target radius term;
-    //   this keeps the clamp and the radius, which is the superset of both.)
-    double surfaceDist = heading.length() - m_radius - m_targetEntity.second->GetRadius();
-    m_targetDistance = (surfaceDist > 0.0 ? surfaceDist : 0.0);
+    /*  Distance is to the target's CENTER, less only our own radius.
+     *
+     *  Subtracting the target's radius as well -- which is what a surface-to-surface
+     *  reading would do -- breaks gate travel.  A stargate's radius is 7999m, and it
+     *  is a bounding sphere, not a hull: ships fly right up to the gate.  With the
+     *  target term an autopilot approach to 1000m stopped at 1000 + 143 (Catalyst)
+     *  + 7999 = 9142m from the gate, outside the client's 2500m jump range, so the
+     *  client never issued the jump.  It re-sent CmdWarpToStuffAutopilot every 6s
+     *  instead, each one answered with "That is too close for your Warp Drive"
+     *  because 9km is inside minWarpDistance -- an autopilot that disengages and
+     *  repeats its voice line forever.
+     *
+     *  m_targetDistance is a double and the negative case is clamped: the old uint32
+     *  cast wrapped anything already inside our own radius into a huge positive.
+     */
+    double rawDist = heading.length() - m_radius;
+    m_targetDistance = (rawDist > 0.0 ? rawDist : 0.0);
 
-    if (surfaceDist <= (double)m_followDistance) {
+    if (rawDist <= (double)m_followDistance) {
         if (mySE->HasPilot())
             if (mySE->GetPilot()->IsAutoPilot()) {
                 SetSpeedFraction(0.1);

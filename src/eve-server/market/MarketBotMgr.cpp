@@ -121,7 +121,7 @@ void MarketBotMgr::Process(bool overrideTimer) {
     codelog(MARKET__TRACE, ">> Entered MarketBotMgr::Process()");
 
     if (!m_initalized) {
-        sLog.Error("     MarketBotMgr", "MarketBotMgr not initialized — skipping run\n");
+        sLog.Error("     MarketBotMgr", "MarketBotMgr not initialized - skipping run\n");
         codelog(MARKET__ERROR, "Process() called but MarketBotMgr is not initialized.");
         return;
     }
@@ -130,14 +130,14 @@ void MarketBotMgr::Process(bool overrideTimer) {
         auto timeLeft = std::chrono::duration_cast<std::chrono::milliseconds>(m_nextRunTime - now).count();
         if (timeLeft > 0) {
             sLog.Green("     Trader Joe", "Update timer not ready yet. Next run in %lld seconds.", timeLeft / 1000);
-            codelog(MARKET__TRACE, "Trader Joe waiting — next run in %lld seconds.", timeLeft);
+            codelog(MARKET__TRACE, "Trader Joe waiting - next run in %lld seconds.", timeLeft);
             return;
         }
     }
     
     sLog.Green("     Market Bot Mgr", "Processing old orders...\n");
     codelog(MARKET__TRACE, "Processing old orders...");
-    ExpireOldOrders();
+    int expiredOrders = ExpireOldOrders();
 
     std::vector<uint32> eligibleSystems = GetEligibleSystems();
     sLog.Green("     Market Bot Mgr", "Trader Joe found %zu eligible systems for order placement.", eligibleSystems.size());
@@ -145,7 +145,6 @@ void MarketBotMgr::Process(bool overrideTimer) {
 
     int totalBuyOrders = 0;
     int totalSellOrders = 0;
-    int expiredOrders = ExpireOldOrders();
 
     for (uint32 systemID : eligibleSystems) {
         sLog.Green("     Market Bot Mgr", "Trader Joe placing orders in systemID: %u", systemID);
@@ -171,7 +170,7 @@ void MarketBotMgr::ForceRun(bool resetTimer) {
     sLog.Warning("     ForceRun", "Manually starting Trader Joe.");
 
     if (!m_initalized) {
-        sLog.Yellow("     Trader Joe", "MarketBotMgr not initialized — skipping run.");
+        sLog.Yellow("     Trader Joe", "MarketBotMgr not initialized - skipping run.");
         return;
     }
 
@@ -303,7 +302,7 @@ int MarketBotMgr::PlaceSellOrders(uint32 systemID) {
     std::vector<uint32> availableStations;
 
     if (!sDataMgr.GetStationListForSystem(systemID, availableStations)) {
-        codelog(MARKET__ERROR, "Trader Joe: No stations found for system %u — skipping order creation.", systemID);
+        codelog(MARKET__ERROR, "Trader Joe: No stations found for system %u - skipping order creation.", systemID);
         return 0;
     } else {
         codelog(MARKET__TRACE, "Trader Joe: Found %zu stations in system %u", availableStations.size(), systemID);

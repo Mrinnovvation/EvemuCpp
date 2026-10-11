@@ -348,10 +348,17 @@ bool MarshalStream::VisitPackedRow( const PyPackedRow* pyPackedRow )
 
     // reserve the space for the buffers
     Buffer rowData;
-    rowData.Reserve<uint8> ((byteDataBitLength >> 3) + ((booleansBitLength + nullsBitLength) >> 3) + 1);
+    // the bit area holds one bit per boolean plus one null flag per column, and
+    // the row is exactly that many bits long, rounded up to a whole byte.  The
+    // old '>> 3) + 1' rounded up even when the count already divided by 8, which
+    // made us put one surplus zero byte on the wire for the common case of a row
+    // whose boolean and null bits happen to fill their last byte.  Compare
+    // RowDescriptor::InitFromTypedList (mDataLen) in carbonengine/blue.
+    const size_t bitAreaBytes = (booleansBitLength + nullsBitLength + 7) >> 3;
+    rowData.Reserve<uint8> ((byteDataBitLength >> 3) + bitAreaBytes);
     // to ease working with the bit data, reserve a fixed-size buffer
     // and fill it with 0s
-    Buffer bitData(((booleansBitLength + nullsBitLength) >> 3) + 1, 0);
+    Buffer bitData(bitAreaBytes, 0);
 
     std::multimap< uint8, uint32, std::greater< uint8 > >::iterator cur, end;
     cur = sizeMap.begin();

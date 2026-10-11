@@ -26,6 +26,8 @@
 
 // this class is for objects that move
 
+#include <algorithm>
+
 #include "EVEServerConfig.h"
 
 #include "Client.h"
@@ -65,6 +67,7 @@ m_mass(1.0f),
 m_turnTic(1),
 m_massMKg(1.0f),
 m_alignTime(1.0f),
+m_lastTicSpeed(0.0f),
 m_timeToEnterWarp(10.0f),
 m_shipWarpSpeed(1.0f),
 m_maxShipSpeed(100.0f),
@@ -93,6 +96,7 @@ mvPacket(nullptr)
 
     m_capNeeded = 0.0;
     m_prevSpeed = 0.0f;
+    m_lastTicSpeed = 0.0f;
     m_degPerTic = 0.0f;
     m_orbitTime = 0.0f;
     m_orbitRadTic = 0.0f;
@@ -225,17 +229,61 @@ void DestinyManager::ProcessState() {
             float dot = toVec.dotProduct(m_shipHeading);
             float degrees = EvE::Trig::Rad2Deg(std::acos(dot));
 
-            if ((degrees < WARP_ALIGNMENT) and (m_timeFraction > 0.749)) {
+            /*  m_timeFraction is only assigned in MoveObject(), which this method
+             *  calls *after* these checks, so reading it here yields last tic's
+             *  value -- about a second stale at 1Hz.  Evaluate the curve at the
+             *  current time instead, on the same m_moveTime epoch MoveObject uses,
+             *  so the ship enters warp when it actually reaches 75% of max speed
+             *  rather than a tic later.  Combined with the stale read, the old code
+             *  could not satisfy this gate before the deadline below expired, so a
+             *  rookie ship logged the error on every warp while aligned to 0.00deg.
+             */
+            float timeFractionNow = m_timeFraction;
+            if ((m_moveTime > 0.0) and (m_shipAgility > 0.0f))
+                timeFractionNow = (1 - exp(-((GetTimeMSeconds() - m_moveTime) * 0.001f) / m_shipAgility));
+
+            if ((degrees < WARP_ALIGNMENT) and (timeFractionNow > 0.749)) {
                 m_shipHeading = toVec;
                 InitWarp();
                 return;
-            } else if (m_timeFraction < 0.749 && m_userSpeedFraction < 0.7499) {
+            } else if (timeFractionNow < 0.749 && m_userSpeedFraction < 0.7499) {
                 SetSpeedFraction(1.0f, true);
-            } else if ((sEntityList.GetStamp() - m_stateStamp) > m_timeToEnterWarp + 0.3) {
-                // catchall for turn checks messed up, and m_moveTime > ship align time
+            /*  Measure the deadline on the same clock as the thing it gates.
+             *
+             *  m_timeFraction is (1 - exp(-t / agility)) where t runs from
+             *  m_moveTime -- a continuous ms clock, reset on each speed change and
+             *  again by the m_changeDelay path below.  The old check instead used
+             *  (GetStamp() - m_stateStamp), an integer 1Hz tic counter started at
+             *  the state change.  The two epochs differ by about a tic, so the
+             *  deadline expired roughly a second before m_timeFraction could reach
+             *  0.749, making the gate above unreachable: a rookie ship logged this
+             *  error on every single warp while aligned to 0.00 degrees.
+             *
+             *  m_moveTime is zeroed by Halt(), so fall back to the old tic count
+             *  rather than treating "now - 0" as an elapsed age.
+             */
+            } else if ((m_moveTime > 0.0 ? ((GetTimeMSeconds() - m_moveTime) * 0.001f)
+                                         : (float)(sEntityList.GetStamp() - m_stateStamp))
+                       > std::max(m_timeToEnterWarp, m_alignTime) + 0.3) {
+                /*  catchall for turn checks messed up, and m_moveTime > ship align time
+                 *
+                 *  m_timeToEnterWarp is only the time to reach 75% of max speed
+                 *  (-ln(0.25) * agility).  It says nothing about the time needed to
+                 *  physically turn onto the warp vector, which Turn() budgets
+                 *  separately into m_alignTime as (degrees / m_degPerTic).
+                 *
+                 *  Checking against the speed term alone means any warp needing more
+                 *  than (m_degPerTic * m_timeToEnterWarp) degrees of turn trips this
+                 *  branch before the ship could possibly have aligned -- 34 degrees
+                 *  for a rookie ship.  The warp then succeeds anyway via the forced
+                 *  InitWarp() below, so the error logged on nearly every warp was
+                 *  spurious.  Budget against whichever of the two actually governs.
+                 */
                 if (mySE->HasPilot()) {
-                    _log(DESTINY__ERROR, "Destiny::ProcessState() Error!  Ship %s(%u) for Player %s(%u) - warp align/speed is incorrect, but time > shipTimeToWarp.",  \
-                                mySE->GetName(), mySE->GetID(), mySE->GetPilot()->GetName(), mySE->GetPilot()->GetCharacterID());
+                    _log(DESTINY__ERROR, "Destiny::ProcessState() Error!  Ship %s(%u) for Player %s(%u) - warp align/speed is incorrect, but time > shipTimeToWarp."
+                                "  [deg:%.2f tf:%.4f alignTime:%.2f]",  \
+                                mySE->GetName(), mySE->GetID(), mySE->GetPilot()->GetName(), mySE->GetPilot()->GetCharacterID(),
+                                degrees, timeFractionNow, std::max(m_timeToEnterWarp, m_alignTime));
                 } else {
                     _log(DESTINY__ERROR, "Destiny::ProcessState() Error!  NPC %s(%u) - warp align/speed is incorrect, but time > shipTimeToWarp.",  \
                             mySE->GetName(), mySE->GetID());
@@ -530,6 +578,9 @@ void DestinyManager::Stop() {
     m_decel = false;
     m_prevSpeed = 0.0f;
     m_prevSpeedFraction = 0.0f;
+    // m_lastTicSpeed is deliberately left alone: Stop() decelerates, it does not
+    // stop dead, so the previous tic's speed is still the correct lower bound for
+    // the next integration step.  Halt() is where it gets zeroed.
 
     ClearTurn();
     ClearOrbit();
@@ -559,6 +610,7 @@ void DestinyManager::Halt() {
     m_velocity = GVector(NULL_ORIGIN);
     m_moveTime = 0.0;
     m_prevSpeed = 0.0f;
+    m_lastTicSpeed = 0.0f;
     m_stateStamp = 0;
     m_targetPoint = GPoint(NULL_ORIGIN);
     m_stopDistance = 0;
@@ -870,7 +922,20 @@ void DestinyManager::MoveObject() {
 
     //set velocity and position for this tic
     m_velocity = m_shipHeading * speed;
-    SetPosition(m_position + m_velocity, sConfig.debug.PositionHack);   // (PositionHack == true) here will force position update to client
+    /*  Position is the integral of speed over the tic, not the speed at its end.
+     *  Speed here is logarithmic (see the formulas at the top of this method), so
+     *  sampling it only at the end of the tic over-states the distance covered --
+     *  by ~93% on the first tic of an accel from rest, and by a cumulative ~130m
+     *  over a rookie ship's first ten seconds.  That is a straight server/client
+     *  position desync, which is what /syncloc exists to paper over.
+     *
+     *  Averaging the end points integrates the same curve to second order and is
+     *  exact whenever speed is constant, which is the common case.  Any modifier
+     *  applied to speed above (orbit, for one) is carried along by construction.
+     */
+    const float ticDistance = (m_lastTicSpeed + speed) * 0.5f;
+    m_lastTicSpeed = speed;
+    SetPosition(m_position + (m_shipHeading * ticDistance), sConfig.debug.PositionHack);   // (PositionHack == true) here will force position update to client
 
     if (is_log_enabled(DESTINY__MOVE_DEBUG))
         _log(DESTINY__MOVE_DEBUG, "Destiny::MoveObject() - %s(%u) Pos:%.2f,%.2f,%.2f  Vel:%.3f,%.3f,%.3f  Head:%.3f,%.3f,%.3f", \

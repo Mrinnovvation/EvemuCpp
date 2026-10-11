@@ -242,6 +242,7 @@ protected:
     float m_massMKg;                    //in mg     - Millionths of kg (mg)
     float m_alignTime;                  //in s      - align and enter warp are same (for our purposes)
     float m_prevSpeed;                  //in m/s    - used to calculate speed during decel
+    float m_lastTicSpeed;               //in m/s    - speed at the end of the previous tic, for position integration
     float m_maxShipSpeed;               //in m/s
     float m_shipWarpSpeed;              //in au/s
     float m_timeToEnterWarp;            //in s

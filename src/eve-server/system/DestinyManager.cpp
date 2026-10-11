@@ -433,7 +433,33 @@ void DestinyManager::SetSpeedFraction(float fraction/*1.0*/, bool startMovement/
         UpdateVelocity(false);
     }
 
-    if (m_ballMode == Destiny::Ball::Mode::WARP) {
+    /*  Only when a warp is ENDING, which means there is a warp to end.
+     *
+     *  IsWarping() is the test UpdateVelocity() already uses a few lines above
+     *  for the same pair of states, and WarpStop() is careful to call this method
+     *  before deleting m_warpState precisely so it reads true here.
+     *
+     *  Without it, this block also fired on a warp that was still ALIGNING.  The
+     *  warp-align gate in ProcessState() calls SetSpeedFraction(1.0f, true) to
+     *  spin the ship up to the 75% of max speed it requires, and for a ship
+     *  starting from rest that call arrives with the ball already in WARP mode
+     *  and m_warpState still null.  It flipped the ball to GOTO, so ProcessState()
+     *  never reached the align gate again and InitWarp() could not fire, and it
+     *  sent the client a CmdGotoDirection -- "your warp has ended, you are flying
+     *  straight" -- one tic after the warp was accepted.  The client dropped
+     *  autopilot on the spot and the ship accelerated off in whatever direction it
+     *  happened to be pointing.
+     *
+     *  Measured, two warps in one log, the discriminator being the speed the ship
+     *  started from:
+     *    22:03:28  usf:1.000 on entry -> the gate's speed branch skipped
+     *                                 -> InitWarp() at tic 6, warp normal.
+     *    22:04:18  usf:0.000 on entry -> speed branch taken -> mode flipped to
+     *                                    GOTO -> no warp, autopilot dropped.
+     *  Which is why warping worked whenever the ship was already under way and
+     *  failed every time it was asked to warp from a standstill at a gate.
+     */
+    if ((m_ballMode == Destiny::Ball::Mode::WARP) and IsWarping()) {
         // set state to Ball::Mode::GOTO after setting warp decel variables, so warp completion will decel properly
         m_ballMode = Destiny::Ball::Mode::GOTO;
         // Tell client warp has ended and ship is decelerating in current heading direction.

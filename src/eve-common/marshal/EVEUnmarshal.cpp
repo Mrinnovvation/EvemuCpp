@@ -548,7 +548,11 @@ PyRep* UnmarshalStream::LoadPackedRow()
         sizeMap.insert (std::make_pair (size, i));
     }
 
-    size_t expectedByteSize = (byteDataBitLength >> 3) + ((booleansBitLength + nullsBitLength) >> 3) + 1;
+    // Total row length is the fixed fields, the boolean bits and one null flag
+    // per column, rounded up to a byte -- see RowDescriptor::InitFromTypedList
+    // (mDataLen) in carbonengine/blue.  RLE unpacking zero-fills the tail, so an
+    // over-estimate here was harmless, but it was not the length the client uses.
+    size_t expectedByteSize = (byteDataBitLength + booleansBitLength + nullsBitLength + 7) >> 3;
 
     // reserve enough space for the buffer
     Buffer unpacked (expectedByteSize, 0);

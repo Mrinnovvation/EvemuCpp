@@ -1194,7 +1194,7 @@ void DestinyManager::Follow() {
     double surfaceDist = heading.length() - m_radius - m_targetEntity.second->GetRadius();
     m_targetDistance = (surfaceDist > 0.0 ? surfaceDist : 0.0);
 
-    if (rawDist <= (double)m_followDistance) {
+    if (surfaceDist <= (double)m_followDistance) {
         if (mySE->HasPilot())
             if (mySE->GetPilot()->IsAutoPilot()) {
                 SetSpeedFraction(0.1);

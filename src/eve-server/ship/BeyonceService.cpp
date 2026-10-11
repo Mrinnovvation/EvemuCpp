@@ -111,37 +111,49 @@ BeyonceBound::BeyonceBound(EVEServiceManager& mgr, BeyonceService& parent, Clien
     this->Add("CmdJumpThroughAlliance", &BeyonceBound::CmdJumpThroughAlliance);
     this->Add("CmdJumpThroughCorporationStructure", &BeyonceBound::CmdJumpThroughCorporationStructure);
 
+    // 2026-09-14 20:19 -0400 | theocheesecake: Mark the binding ready; let the login timer send the initial state
+    // after the constructor and bind response finish, not from this constructor.
     client->SetBeyonce(true);
-    if (client->IsLogin() and !client->IsSetStateSent())
-        client->SetBallPark();
 
     this->m_bookmark = this->GetServiceManager().Lookup <BookmarkService>("bookmark");
 }
 
 PyResult BeyonceBound::CmdFollowBall(PyCallArgs &call, PyInt* ballID, PyRep* distance) {
+    // 2026-09-14 21:06 -0400 | theocheesecake: Trace navigation requests independently of the inferred AP flag.
+    sLog.Warning("NavDebug", "%s: RECEIVE CmdFollowBall target=%u system=%u AP=%d session=%d loginWarp=%d",
+        call.client->GetName(), static_cast<unsigned int>(ballID->value()),
+        call.client->GetSystemID(), static_cast<int>(call.client->IsAutoPilot()),
+        static_cast<int>(call.client->IsSessionChange()), static_cast<int>(call.client->IsLoginWarping()));
+
     _log(AUTOPILOT__MESSAGE, "%s called Follow. AP: %s", call.client->GetName(), (call.client->IsAutoPilot() ? "true" : "false"));
 
     DestinyManager* pDestiny = call.client->GetShipSE()->DestinyMgr();
     if (pDestiny == nullptr) {
         codelog(CLIENT__ERROR, "%s: Client has no destiny manager!", call.client->GetName());
+        sLog.Warning("NavDebug", "%s: REJECT CmdFollowBall reason=no-destiny", call.client->GetName());
         return PyStatic.NewNone();
     } else if (pDestiny->IsWarping()) {
         call.client->SendNotifyMsg( "You can't do this while warping");
+        sLog.Warning("NavDebug", "%s: REJECT CmdFollowBall reason=warping", call.client->GetName());
         return PyStatic.NewNone();
     } else if (pDestiny->IsFrozen()) {
         call.client->SendNotifyMsg( "Your ship is frozen and cannot move");
+        sLog.Warning("NavDebug", "%s: REJECT CmdFollowBall reason=frozen", call.client->GetName());
         return PyStatic.NewNone();
     }  else if (pDestiny->AbortIfLoginWarping(true)) {
+        sLog.Warning("NavDebug", "%s: REJECT CmdFollowBall reason=login-warp", call.client->GetName());
         return PyStatic.NewNone();
     }
     SystemManager* pSystem = call.client->SystemMgr();
     if (pSystem == nullptr) {
         codelog(CLIENT__ERROR, "%s: Client has no system manager!", call.client->GetName());
+        sLog.Warning("NavDebug", "%s: REJECT CmdFollowBall reason=no-system", call.client->GetName());
         return PyStatic.NewNone();
     }
     SystemEntity* pSE = pSystem->GetSE(ballID->value());
     if (pSE == nullptr) {
         _log(CLIENT__ERROR, "%s: Unable to find entity %u to Follow/Approach.", call.client->GetName(), ballID->value());
+        sLog.Warning("NavDebug", "%s: REJECT CmdFollowBall reason=target-missing", call.client->GetName());
         return PyStatic.NewNone();
     }
 
@@ -581,32 +593,49 @@ PyResult BeyonceBound::CmdWarpToStuff(PyCallArgs &call, PyString* type, PyRep* i
 }
 
 PyResult BeyonceBound::CmdWarpToStuffAutopilot(PyCallArgs &call, PyInt* destID) {
+    // 2026-09-14 21:06 -0400 | theocheesecake: Trace navigation requests independently of the inferred AP flag.
+    sLog.Warning("NavDebug", "%s: RECEIVE CmdWarpToStuffAutopilot target=%u system=%u AP=%d session=%d loginWarp=%d",
+        call.client->GetName(), static_cast<unsigned int>(destID->value()),
+        call.client->GetSystemID(), static_cast<int>(call.client->IsAutoPilot()),
+        static_cast<int>(call.client->IsSessionChange()), static_cast<int>(call.client->IsLoginWarping()));
+
     _log(AUTOPILOT__MESSAGE, "%s called WarpToStuffAutopilot. AP: %s", call.client->GetName(), (call.client->IsAutoPilot() ? "true" : "false"));
     DestinyManager* pDestiny = call.client->GetShipSE()->DestinyMgr();
     if (pDestiny == nullptr) {
         codelog(CLIENT__ERROR, "%s: Client has no destiny manager!", call.client->GetName());
+        sLog.Warning("NavDebug", "%s: REJECT CmdWarpToStuffAutopilot reason=no-destiny", call.client->GetName());
         return PyStatic.NewNone();
     } else if (pDestiny->IsWarping()) {
         call.client->SendNotifyMsg( "You can't do this while warping");
+        sLog.Warning("NavDebug", "%s: REJECT CmdWarpToStuffAutopilot reason=warping", call.client->GetName());
         return PyStatic.NewNone();
     }  else if (pDestiny->AbortIfLoginWarping(true)) {
+        sLog.Warning("NavDebug", "%s: REJECT CmdWarpToStuffAutopilot reason=login-warp", call.client->GetName());
         return PyStatic.NewNone();
     } else if (pDestiny->IsFrozen()) {
         call.client->SendNotifyMsg( "Your ship is frozen and cannot move");
+        sLog.Warning("NavDebug", "%s: REJECT CmdWarpToStuffAutopilot reason=frozen", call.client->GetName());
         return PyStatic.NewNone();
     }
     SystemManager* pSystem = call.client->SystemMgr();
     if (pSystem == nullptr) {
         codelog(CLIENT__ERROR, "%s: Client has no system manager!", call.client->GetName());
+        sLog.Warning("NavDebug", "%s: REJECT CmdWarpToStuffAutopilot reason=no-system", call.client->GetName());
         return PyStatic.NewNone();
     }
 
     SystemEntity* pSE = pSystem->GetSE(destID->value());
     if (pSE == nullptr) {
 	  codelog(CLIENT__ERROR, "%s: unable to find destination Entity for ID %u", call.client->GetName(), destID->value());
+        sLog.Warning("NavDebug", "%s: REJECT CmdWarpToStuffAutopilot reason=target-missing", call.client->GetName());
         return PyStatic.NewNone();
     }
 
+    // 2026-09-14 16:17 -04:00 | theocheesecake: Compare accepted autopilot commands with arrival, including manual reactivation.
+    sLog.Warning("APDebug", "%s: ACCEPT AP warp, system=%u target=%u mode=%u cloak=%d AP=%d",
+        call.client->GetName(), call.client->GetSystemID(), static_cast<unsigned int>(destID->value()),
+        static_cast<unsigned int>(pDestiny->GetState()), static_cast<int>(pDestiny->IsCloaked()),
+        static_cast<int>(call.client->IsAutoPilot()));
     call.client->SetInvul(false);
     call.client->SetUndock(false);
     // AP shit here.....
@@ -624,6 +653,10 @@ PyResult BeyonceBound::CmdWarpToStuffAutopilot(PyCallArgs &call, PyInt* destID) 
 }
 
 PyResult BeyonceBound::CmdStop(PyCallArgs &call) {
+    // 2026-09-14 15:25 -04:00 | theocheesecake: Trace incoming stop requests before any early return.
+    sLog.Warning("APDebug", "%s: received CmdStop, AP=%d, jumping=%d",
+        call.client->GetName(), static_cast<int>(call.client->IsAutoPilot()),
+        static_cast<int>(call.client->IsJump()));
     _log(AUTOPILOT__MESSAGE, "%s called Stop. AP: %s, Invul: %s", call.client->GetName(), \
             (call.client->IsAutoPilot() ? "true" : "false"), call.client->IsInvul()?"true":"false");
 
@@ -632,6 +665,7 @@ PyResult BeyonceBound::CmdStop(PyCallArgs &call) {
         codelog(CLIENT__ERROR, "%s: Client has no destiny manager!", call.client->GetName());
         return PyStatic.NewNone();
     }
+    // 2026-09-14 15:25 -04:00 | theocheesecake: Restore stationary-stop guard while investigating arrival-time cancellation.
     if (!pDestiny->IsMoving())
         return PyStatic.NewNone();
     if (pDestiny->IsWarping()) {
@@ -654,27 +688,39 @@ PyResult BeyonceBound::CmdStop(PyCallArgs &call) {
 
 // CmdTurboDock (in client code)
 PyResult BeyonceBound::CmdDock(PyCallArgs &call, PyInt* celestialID, PyInt* shipID, std::optional<PyRep*> paymentRequired) {
+    // 2026-09-14 21:06 -0400 | theocheesecake: Trace navigation requests independently of the inferred AP flag.
+    sLog.Warning("NavDebug", "%s: RECEIVE CmdDock target=%u system=%u AP=%d session=%d loginWarp=%d",
+        call.client->GetName(), static_cast<unsigned int>(celestialID->value()),
+        call.client->GetSystemID(), static_cast<int>(call.client->IsAutoPilot()),
+        static_cast<int>(call.client->IsSessionChange()), static_cast<int>(call.client->IsLoginWarping()));
+
     _log(AUTOPILOT__MESSAGE, "%s called Dock. AP: %s", call.client->GetName(), (call.client->IsAutoPilot() ? "true" : "false"));
     if (call.client->IsSessionChange()) {
         call.client->SendNotifyMsg("Session Change currently active.");
+        sLog.Warning("NavDebug", "%s: REJECT CmdDock reason=session-change", call.client->GetName());
         return PyStatic.NewNone();
     }
     DestinyManager* pDestiny = call.client->GetShipSE()->DestinyMgr();
     if (pDestiny == nullptr) {
         codelog(CLIENT__ERROR, "%s: Client has no destiny manager!", call.client->GetName());
+        sLog.Warning("NavDebug", "%s: REJECT CmdDock reason=no-destiny", call.client->GetName());
         return PyStatic.NewNone();
     } else if (pDestiny->IsWarping()) {
         call.client->SendNotifyMsg( "You can't do this while warping");
+        sLog.Warning("NavDebug", "%s: REJECT CmdDock reason=warping", call.client->GetName());
         return PyStatic.NewNone();
     }  else if (pDestiny->AbortIfLoginWarping(true)) {
+        sLog.Warning("NavDebug", "%s: REJECT CmdDock reason=login-warp", call.client->GetName());
         return PyStatic.NewNone();
     } else if (pDestiny->IsFrozen()) {
         call.client->SendNotifyMsg( "Your ship is frozen and cannot move");
+        sLog.Warning("NavDebug", "%s: REJECT CmdDock reason=frozen", call.client->GetName());
         return PyStatic.NewNone();
     }
     SystemManager* pSystem = call.client->SystemMgr();
     if (pSystem == nullptr) {
         codelog(CLIENT__ERROR, "%s: Client has no system manager.", call.client->GetName());
+        sLog.Warning("NavDebug", "%s: REJECT CmdDock reason=no-system", call.client->GetName());
         return PyStatic.NewNone();
     }
 
@@ -686,6 +732,12 @@ PyResult BeyonceBound::CmdDock(PyCallArgs &call, PyInt* celestialID, PyInt* ship
 }
 
 PyResult BeyonceBound::CmdStargateJump(PyCallArgs &call, PyInt* fromStargateID, PyInt* toStargateID, PyInt* shipID) {
+    // 2026-09-14 21:06 -0400 | theocheesecake: Trace navigation requests independently of the inferred AP flag.
+    sLog.Warning("NavDebug", "%s: RECEIVE CmdStargateJump target=%u system=%u AP=%d session=%d loginWarp=%d",
+        call.client->GetName(), static_cast<unsigned int>(fromStargateID->value()),
+        call.client->GetSystemID(), static_cast<int>(call.client->IsAutoPilot()),
+        static_cast<int>(call.client->IsSessionChange()), static_cast<int>(call.client->IsLoginWarping()));
+
     /*  jump system messages....
 (67187, `{[location]system.name} Traffic Control: your jump-in clearance has expired.`)
 (67191, `{[location]system.name} Traffic Control: you have been cleared for jump-in within {[timeinterval]expiration.writtenForm, from=second, to=second}.`)
@@ -714,30 +766,41 @@ PyResult BeyonceBound::CmdStargateJump(PyCallArgs &call, PyInt* fromStargateID, 
     _log(AUTOPILOT__MESSAGE, "%s called Jump. AP: %s", call.client->GetName(), (call.client->IsAutoPilot() ? "true" : "false"));
     if (call.client->IsSessionChange()) {
         call.client->SendNotifyMsg("Session Change currently active.");
+        sLog.Warning("NavDebug", "%s: REJECT CmdStargateJump reason=session-change", call.client->GetName());
         return PyStatic.NewNone();
     }
     DestinyManager* pDestiny = call.client->GetShipSE()->DestinyMgr();
     if (pDestiny == nullptr) {
         codelog(CLIENT__ERROR, "%s: Client has no destiny manager!", call.client->GetName());
+        sLog.Warning("NavDebug", "%s: REJECT CmdStargateJump reason=no-destiny", call.client->GetName());
         return PyStatic.NewNone();
     } else if (pDestiny->IsWarping()) {
         call.client->SendNotifyMsg( "You can't do this while warping");
+        sLog.Warning("NavDebug", "%s: REJECT CmdStargateJump reason=warping", call.client->GetName());
         return PyStatic.NewNone();
     }  else if (pDestiny->AbortIfLoginWarping(true)) {
+        sLog.Warning("NavDebug", "%s: REJECT CmdStargateJump reason=login-warp", call.client->GetName());
         return PyStatic.NewNone();
     } else if (pDestiny->IsFrozen()) {
         call.client->SendNotifyMsg( "Your ship is frozen and cannot move");
+        sLog.Warning("NavDebug", "%s: REJECT CmdStargateJump reason=frozen", call.client->GetName());
         return PyStatic.NewNone();
     }
 
     /** @todo  check distance from ship to gate */
     call.client->StargateJump(fromStargateID->value(), toStargateID->value());
 
-    /* return error msg from this call, if applicable, else nodeid and timestamp */
-    // returns nodeID and timestamp
-    // HACK: WE'RE RETURNING BACK THE SAME BOUND SERVICE, IN REALITY A NEW BOUND INSTANCE SHOULD BE CREATED FOR THIS SHIP IN SPECIFIC
-    //       INSTEAD OF REUSING THIS ONE, THIS WOULD HELP KEEP INFORMATION IN/OUT OF MEMORY BASED ON THE BOUND SERVICES
-    return this->GetOID();
+    // 2026-09-14 16:03 -04:00 | theocheesecake: Test the historical
+    // stargate response from before service refactor 7c8bbc93: preserve the
+    // bound-service string but generate a fresh timestamp for each jump.
+    // GetOID() otherwise reuses the value created when the service was bound.
+    // Only modify the returned clone; leave the registered service OID intact.
+    // This is a controlled regression test, not a confirmed autopilot fix.
+    PyTuple* response = this->GetOID();
+    response->SetItem(1, new PyLong(GetFileTimeNow()));
+    sLog.Warning("APDebug", "%s: stargate reply uses fresh timestamp",
+        call.client->GetName());
+    return response;
 }
 
 PyResult BeyonceBound::CmdAbandonLoot(PyCallArgs &call, PyList* wreckIDs) {

@@ -161,7 +161,11 @@ void DestinyManager::ProcessState() {
                 MoveObject();
                 return;
             }
-            Stop();
+
+            // Already stationary: reset movement without cancelling autopilot
+            // or sending a CmdStop to the client
+            Halt();
+            //Stop();
         } break;
         case Ball::Mode::GOTO: {
             MoveObject();
@@ -491,6 +495,7 @@ void DestinyManager::UpdateVelocity(bool isMoving) {
             mySE->GetName(), mySE->GetID(), m_userSpeedFraction, m_activeSpeedFraction, m_timeFraction, m_prevSpeedFraction, m_prevSpeed, m_maxSpeed, \
                  m_accel ? "true" : "false", m_decel ? "true": "false", delta);
     } else if (m_activeSpeedFraction) {
+        // 2026-09-14 20:45 -0400 | theocheesecake: Restore the deceleration setup used before the coasting experiment.
         //  commanded to stop while ship is moving.  begin decelerating
         logType = 5;
         m_accel = false;
@@ -557,6 +562,12 @@ void DestinyManager::Stop() {
     if (AbortIfLoginWarping(false)) {
         return;
     }
+
+    // 2026-09-14 21:06 -0400 | theocheesecake: Identify server-originated stops separately from incoming CmdStop.
+    if (mySE->HasPilot())
+        sLog.Warning("NavDebug", "%s: SERVER Stop mode=%u target=%u AP=%d",
+            mySE->GetName(), static_cast<unsigned int>(m_ballMode), m_targetEntity.first,
+            static_cast<int>(mySE->GetPilot()->IsAutoPilot()));
 
     // AP not implemented yet in this version  -allan 4Mar15
     // Clear autopilot
@@ -1160,6 +1171,16 @@ void DestinyManager::Follow() {
     const GPoint& target_point = m_targetEntity.second->GetPosition();
     GVector heading(m_position, target_point);
     m_targetDistance = (uint32)(heading.length() - m_radius);
+    // 2026-09-14 21:06 -0400 | theocheesecake: Sample approach progress every five ticks, including the AP early-return branch.
+    if (mySE->HasPilot() && (sEntityList.GetStamp() % 5 == 0)) {
+        sLog.Warning("NavDebug", "%s: FOLLOW target=%u center=%.2f surface=%.2f followRange=%u AP=%d apHold=%d speed=%.4f USF=%.4f ASF=%.4f PSF=%.4f accel=%d decel=%d",
+            mySE->GetName(), m_targetEntity.first, heading.length(),
+            heading.length() - mySE->GetRadius() - m_targetEntity.second->GetRadius(),
+            m_followDistance, static_cast<int>(mySE->GetPilot()->IsAutoPilot()),
+            static_cast<int>(mySE->GetPilot()->IsAutoPilot() && m_targetDistance < m_followDistance),
+            m_velocity.length(), m_userSpeedFraction, m_activeSpeedFraction, m_prevSpeedFraction,
+            static_cast<int>(m_accel), static_cast<int>(m_decel));
+    }
 
     if (m_targetDistance < m_followDistance) {
         if (mySE->HasPilot())
@@ -1843,6 +1864,11 @@ void DestinyManager::WarpUpdate(double currentShipSpeed) {
 }
 
 void DestinyManager::WarpStop(double currentShipSpeed) {
+    // 2026-09-14 21:21 -0400 | theocheesecake: Capture login return before SetLoginWarpComplete clears it.
+    const bool completedLoginWarp = mySE->HasPilot() && mySE->GetPilot()->IsLoginWarping();
+
+    // 2026-09-14 20:45 -0400 | theocheesecake: Restore the pre-coasting warp-exit behavior
+    // while investigating the automatic gate activation and docking regression.
     if (is_log_enabled(DESTINY__WARP_TRACE)) {
         _log(DESTINY__WARP_TRACE, "Destiny::WarpStop(): %s(%u) - Warp complete. Exit velocity %.4f m/s with %.2f m left to go.", \
                 mySE->GetName(), mySE->GetID(), currentShipSpeed, m_targetDistance);
@@ -1871,6 +1897,20 @@ void DestinyManager::WarpStop(double currentShipSpeed) {
     // forward while decelerating - meaning that the client and server are
     // briefly out of sync because the server thinks the ship is halted.
     Halt();
+
+    // 2026-09-14 21:21 -0400 | theocheesecake: Test a fresh system snapshot after login return,
+    // when movement is stopped and the ship is in its destination bubble.
+    // Defer through the existing ballpark timer instead of sending SetState
+    // immediately ahead of this tick's queued warp-position updates.
+    // Ordinary warps and stargate arrivals do not schedule this refresh.
+    if (completedLoginWarp) {
+        Client* pilot = mySE->GetPilot();
+        pilot->SetStateSent(false);
+        pilot->SetBallParkTimer(0);
+        pilot->SetBallParkTimer(Player::Timer::Default);
+        sLog.Warning("NavDebug", "%s: LOGIN arrival snapshot scheduled system=%u mode=%u",
+            pilot->GetName(), pilot->GetSystemID(), static_cast<unsigned int>(m_ballMode));
+    }
 }
 
 //called whenever an entity is going away and can no longer be used as a target
@@ -1983,7 +2023,8 @@ void DestinyManager::BeginMovement() {
     if (IsCloaked())
         UnCloak();
 
-    // if ship is not moving, set initial movement variables
+    // 2026-09-14 20:45 -0400 | theocheesecake: Restore the original movement-start condition
+    // together with the pre-coasting warp-exit behavior.
     if ((m_userSpeedFraction < 0.02f) and (m_timeFraction < 0.02f)) {
         SetSpeedFraction(1.0f, true);
     } else {
@@ -2450,6 +2491,10 @@ PyResult DestinyManager::AttemptDockOperation() {
     double rangeToStationPerimiter = m_position.distance(stationPos);
     rangeToStationPerimiter -= mySE->GetRadius();
     rangeToStationPerimiter -= station->GetRadius();
+
+    // 2026-09-14 21:06 -0400 | theocheesecake: Record the actual server-side docking range after command guards pass.
+    sLog.Warning("NavDebug", "%s: DOCK range station=%u surface=%.2f",
+        pClient->GetName(), stationID, rangeToStationPerimiter);
 
     // Verify range to station is within docking perimeter of 2500 meters:
     _log(DESTINY__TRACE, "Destiny::AttemptDockOperation() rangeToStationPerimiter is %.2fm", rangeToStationPerimiter);
@@ -3284,24 +3329,35 @@ void DestinyManager::SendSetState() const {
         );
     }
 
-    // if the player is not warping, tell the client they're not warping.
-    // As of 2024-10-03, this doesn't always work and there are still issues
-    // with the client sometimes not starting a warp sequence.
-    std::vector<PyTuple*> updates;
-    OnSpecialFX10 sfx;
-    sfx.guid = "effects.Warping";
-    sfx.entityID = mySE->GetID();
-    sfx.isOffensive = false;
-    sfx.start = false;
-    sfx.active = false;
-    if (m_ballMode == Destiny::Ball::Mode::WARP) {
-        sfx.start = true; // TODO: verify if this is necessary
-        sfx.active = true;
-    }
+    // 2026-09-14 15:51 -04:00 | theocheesecake: During a non-warping
+    // stargate arrival, use the full SetState snapshot without synthesizing
+    // a warp-stop effect. The effect is queued, while SetState is immediate;
+    // traces show the effect arriving after SetState, followed by CmdStop.
+    // This targets that suspected cancellation trigger. Preserve the existing
+    // warp-effect synchronization for other SetState calls and actual warps.
+    if (!mySE->GetPilot()->IsGateJump() || m_ballMode == Destiny::Ball::Mode::WARP) {
+        // if the player is not warping, tell the client they're not warping.
+        // As of 2024-10-03, this doesn't always work and there are still issues
+        // with the client sometimes not starting a warp sequence.
+        std::vector<PyTuple*> updates;
+        OnSpecialFX10 sfx;
+        sfx.guid = "effects.Warping";
+        sfx.entityID = mySE->GetID();
+        sfx.isOffensive = false;
+        sfx.start = false;
+        sfx.active = false;
+        if (m_ballMode == Destiny::Ball::Mode::WARP) {
+            sfx.start = true; // TODO: verify if this is necessary
+            sfx.active = true;
+        }
 
-    updates.push_back(sfx.Encode());
-    SendDestinyUpdate(updates);
-    updates.clear();
+        updates.push_back(sfx.Encode());
+        SendDestinyUpdate(updates);
+        updates.clear();
+    } else {
+        sLog.Warning("APDebug", "%s: gate arrival - omitted synthetic warp-stop effect",
+            mySE->GetPilot()->GetName());
+    }
 
     SetState ss;
 

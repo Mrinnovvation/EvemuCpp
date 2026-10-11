@@ -99,6 +99,16 @@ chargeRef(InventoryItemRef(nullptr))
 bool SystemEntity::ApplyDamage(Damage &d) {
     double profileStartTime(GetTimeUSeconds());
 
+    // Cancel autopilot when another entity delivers a damaging attack.
+    if (HasPilot()
+        && GetPilot()->IsAutoPilot()
+        && d.srcSE != nullptr
+        && d.srcSE != this
+        && d.GetTotal() > 0.0
+        && DestinyMgr() != nullptr) {
+        DestinyMgr()->Stop();
+    }
+
     if (is_log_enabled(DAMAGE__MESSAGE)) {
         if (d.srcSE->IsNPCSE()) {
             _log(DAMAGE__MESSAGE, "%s(%u): Initializing %.2f damage from NPC %s(%u) with K:%.3f, T:%.3f, EM:%.3f, E:%.3f",\

@@ -2618,6 +2618,17 @@ void ShipSE::EncodeDestiny( Buffer& into) {
         data.velY = m_destiny->GetVelocity().y;
         data.velZ = m_destiny->GetVelocity().z;
         data.speedfraction = m_destiny->GetSpeedFraction();
+    // 2026-09-14 16:17 -04:00 | theocheesecake: Trace the actual ship fields serialized into arrival snapshots.
+    if (HasPilot() && GetPilot()->IsAutoPilot()) {
+        sLog.Warning("APDebug", "ENCODE ship=%u system=%u gateJump=%d mode=%u flags=%u cloak=%u",
+            GetID(), GetPilot()->GetSystemID(), static_cast<int>(GetPilot()->IsGateJump()),
+            static_cast<unsigned int>(mode), static_cast<unsigned int>(head.flags),
+            static_cast<unsigned int>(mass.cloak));
+        sLog.Warning("APDebug", "ENCODE ship=%u maxSpeed=%.6f fraction=%.6f velocity=(%.6f,%.6f,%.6f) mass=%.6f inertia=%.6f",
+            GetID(), static_cast<double>(data.maxSpeed), static_cast<double>(data.speedfraction),
+            static_cast<double>(data.velX), static_cast<double>(data.velY), static_cast<double>(data.velZ),
+            static_cast<double>(mass.mass), static_cast<double>(data.inertia));
+    }
     into.Append( data);
     switch (mode) {
         case Ball::Mode::WARP: {

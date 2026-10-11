@@ -1331,6 +1331,12 @@ void SystemManager::MakeSetState(const SystemBubble* pBubble,  SetState& into) c
 
     // query bubble to get dynamic entities
     pBubble->GetEntities(visibleEntities);
+    // 2026-09-14 15:37 -04:00 | theocheesecake: Verify that the arrival snapshot includes the player ship and destination-system entities.
+    sLog.Warning("APDebug", "SetState snapshot: system=%u, ego=%u, egoPresent=%d, static=%u, visible=%u",
+        m_data.systemID, into.ego,
+        static_cast<int>(visibleEntities.find(into.ego) != visibleEntities.end()),
+        static_cast<unsigned int>(m_staticEntities.size()),
+        static_cast<unsigned int>(visibleEntities.size()));
 
     into.slims = new PyList();
     into.slims->clear();

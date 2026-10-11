@@ -486,8 +486,17 @@ void Client::ProcessClient() {
                 } break;
                 case Player::State::Login: {
                     _log(CLIENT__TIMER, "ProcessClient()::CheckState():  case: Login");
-                    m_login = false;
+                    // 2026-09-14 20:19 -0400 | theocheesecake: Wait for the movement binding before starting login warp.
+                    if (!m_beyonce) {
+                        SetStateTimer(Player::State::Login, Player::Timer::Default);
+                        break;
+                    }
                     SetBallPark();
+                    if (!m_setStateSent) {
+                        SetStateTimer(Player::State::Login, Player::Timer::Default);
+                        break;
+                    }
+                    m_login = false;
                     if (sDataMgr.IsSolarSystem(m_locationID)) {
                         WarpIn();
                     }
@@ -496,6 +505,10 @@ void Client::ProcessClient() {
                 case Player::State::LoginWarp: {
                     _log(CLIENT__TIMER, "ProcessClient()::CheckState():  case: LoginWarp");
                     pShipSE->DestinyMgr()->UnCloak();
+                    // 2026-09-14 21:06 -0400 | theocheesecake: Compare login-warp initialization with the working undock path.
+                    sLog.Warning("NavDebug", "%s: LOGIN warp start state=%s snapshot=%d binding=%d",
+                        GetName(), GetStateName(m_clientState).c_str(),
+                        static_cast<int>(m_setStateSent), static_cast<int>(m_beyonce));
                     pShipSE->DestinyMgr()->WarpTo(m_loginWarpPoint);
                     } break;
                 case Player::State::Jump: {
@@ -593,18 +606,10 @@ void Client::UpdateBubble() {
 // is immediately moved to a position around 0.5 AU away from their logged-out
 // position.
 //
-// However, merely setting the position isn't enough. The client needs to
-// subsequently synchronize the state of the player & the surrounding bubble
-// with the server, so `UpdateBubble` is called. This is important because
-// during the process of establishing the warp vector, the player's ship is
-// going to be aligning to warp for a few seconds, and so the client needs to
-// know what's in its current bubble for that duration.
-//
-// During the development of `WarpIn()`, it was observed that the behavior of
-// the ship was inconsistent if `Destiny->WarpTo()` was called immediately after
-// the above position change and `UpdateBubble` calls. So instead, the session
-// state timer is set to 0, and the player's client state is set to `LoginWarp`,
-// which allows the warp to get processed on the next server tick.
+// The Login handler waits for the movement-service binding and sends the
+// initial system snapshot through SetBallPark before calling this method.
+// LoginWarp is scheduled with the state timer so movement begins later,
+// after the initial state has been queued for transmission.
 //
 // See: `Client::IsLoginWarping`
 //
@@ -618,14 +623,10 @@ void Client::WarpIn() {
         m_ship->SetFlag(flagNone);
     }
 
-    UpdateBubble();
-
-    // This will queue up the login warp-in on the next server tick. Calling
-    // SetStateTimer allows it to be processed on the next tick instead of
-    // getting timed out and ignored by a session change timer.
-    SetStateTimer(0);
-
-    m_clientState = Player::State::LoginWarp;
+    // 2026-09-14 20:19 -0400 | theocheesecake: The Login handler has sent the full initial snapshot through SetBallPark.
+    // Do not send a second SetState plus queued AddBalls through UpdateBubble here.
+    // Explicitly schedule LoginWarp using the existing default delay.
+    SetStateTimer(Player::State::LoginWarp, Player::Timer::Default);
 }
 
 void Client::WarpOut() {
@@ -656,6 +657,9 @@ void Client::SetAutoPilot(bool set/*false*/)
     if (m_autoPilot == set)
         return;
 
+    // 2026-09-14 15:25 -04:00 | theocheesecake: Temporary diagnostic for autopilot state changes.
+    sLog.Warning("APDebug", "%s: autopilot %s -> %s",
+        GetName(), m_autoPilot ? "ON" : "OFF", set ? "ON" : "OFF");
     m_autoPilot = set;
     _log(AUTOPILOT__MESSAGE, "%s called SetAutoPilot to %s", GetName(), (set ? "true" : "false"));
 }
@@ -819,8 +823,15 @@ void Client::MoveToLocation(uint32 locationID, const GPoint& pt) {
 
         SetDestiny(pt);
 
-        if (IsJump() and !m_autoPilot)
-            pShipSE->DestinyMgr()->Stop();
+        // 2026-09-14 16:50 -04:00 | theocheesecake: Reset movement on
+        // jump arrival without sending CmdStop or cancelling autopilot.
+        // m_autoPilot is inferred from autopilot warp requests; it does not
+        // reliably reflect the client's toggle when already near a gate.
+        if (IsJump()) {
+            pShipSE->DestinyMgr()->Halt();
+            sLog.Warning("APDebug", "%s: jump arrival used Halt without CmdStop, serverAP=%d",
+                GetName(), static_cast<int>(m_autoPilot));
+        }
     }
 
     if (!m_login)
@@ -886,10 +897,15 @@ void Client::SetBallPark() {
     }
     if (!m_setStateSent and m_beyonce) {  // MUST have beyonce before sending state data.
         pShipSE->DestinyMgr()->SendSetState();
+        // 2026-09-14 15:25 -04:00 | theocheesecake: Log autopilot after arrival state is sent, before jump state is cleared.
+        sLog.Warning("APDebug", "%s: arrival state sent, AP=%d, gateJump=%d",
+            GetName(), static_cast<int>(IsAutoPilot()), static_cast<int>(IsGateJump()));
         m_ballparkTimer.Disable();
         if (IsGateJump()) {
             SetInvulTimer(Player::Timer::JumpInvul);
             // dont use timer method here...(jumping ship will flash at destination)
+            // 2026-09-14 20:16 -0400 | theocheesecake: Start a fresh interval; Timer::Start preserves an enabled timer's start time.
+            m_cloakTimer.Disable();
             m_cloakTimer.Start(Player::Timer::JumpCloak);
             m_clientState = Player::State::Idle;
         }
@@ -971,6 +987,9 @@ void Client::DockToStation() {
 }
 
 void Client::UndockFromStation() {
+    // 2026-09-14 21:06 -0400 | theocheesecake: Identify the comparison run that bypasses login warp.
+    sLog.Warning("NavDebug", "%s: UNDOCK start state=%s loginWarp=%d",
+        GetName(), GetStateName(m_clientState).c_str(), static_cast<int>(IsLoginWarping()));
     if (m_TS != nullptr) {
         this->services().Lookup <TradeService>("trademgr")->CancelTrade(this);
     }
@@ -1408,6 +1427,10 @@ PyRep *Client::GetAggressors() const {
 }
 
 void Client::StargateJump(uint32 fromGate, uint32 toGate) {
+    // 2026-09-14 21:06 -0400 | theocheesecake: Expose pending movement that can reject a jump after the RPC guards pass.
+    sLog.Warning("NavDebug", "%s: JUMP dispatch from=%u to=%u state=%s timer=%d remainingMs=%u",
+        GetName(), fromGate, toGate, GetStateName(m_clientState).c_str(),
+        static_cast<int>(m_stateTimer.Enabled()), static_cast<unsigned int>(m_stateTimer.GetRemainingTime()));
     if ((m_clientState != Player::State::Idle) or m_stateTimer.Enabled()) {
         sLog.Error("Client","%s: StargateJump called when a move is already pending. Ignoring.", m_char->name());
         /** @todo  send error to client here */
@@ -1449,6 +1472,7 @@ void Client::StargateJump(uint32 fromGate, uint32 toGate) {
 */
     //delay the move 4sec so they can see the JumpOut animation
     SetStateTimer(Player::State::Jump, Player::Timer::Jumping);
+    sLog.Warning("NavDebug", "%s: JUMP scheduled destinationSystem=%u", GetName(), m_moveSystemID);
 }
 
 void Client::CynoJump(InventoryItemRef beacon) {
@@ -1508,6 +1532,10 @@ void Client::ExecuteJump() {
 
     //OnScannerInfoRemoved  - no args.  flushes current scan data in client
     SendNotification("OnScannerInfoRemoved", "charid", new PyTuple(0), true);  // this is sequenced
+    // 2026-09-14 20:16 -0400 | theocheesecake: Discard the previous jump-cloak timer before cloaking for a new jump.
+    // An expired timer can otherwise uncloak the ship before its arrival SetState.
+    // SetBallPark() starts the new protection interval after sending that snapshot.
+    m_cloakTimer.Disable();
     pShipSE->Jump();
 
     MoveToLocation(m_moveSystemID, m_movePoint);
@@ -2115,6 +2143,12 @@ void Client::SendSessionChange()
     scn.changes = new PyDict();
 
     pSession->EncodeChanges(scn.changes);
+    // 2026-09-14 15:37 -04:00 | theocheesecake: Temporary trace of session changes while server autopilot is enabled.
+    if (IsAutoPilot() && !scn.changes->empty()) {
+        sLog.Warning("APDebug", "%s: SEND session change, system=%u, ship=%u",
+            GetName(), GetSystemID(), GetShipID());
+        scn.changes->Dump(AUTOPILOT__ERROR, "APDebug session: ");
+    }
     if (scn.changes->empty())
         return;
 
@@ -2179,6 +2213,16 @@ void Client::QueueDestinyUpdate(PyTuple **update, bool DoPackage /*false*/, bool
         return;
     if (sDataMgr.IsStation(m_locationID))
         return;
+    // 2026-09-14 15:37 -04:00 | theocheesecake: Trace queued versus immediate movement updates without dumping the large SetState buffer.
+    if (IsAutoPilot()) {
+        sLog.Warning("APDebug", "%s: %s destiny, SetState=%d, system=%u, stamp=%u, pending=%u",
+            GetName(), DoPackage ? "SEND immediate" : "QUEUE",
+            static_cast<int>(IsSetState), GetSystemID(),
+            static_cast<unsigned int>(sEntityList.GetStamp()),
+            static_cast<unsigned int>(m_destinyUpdateQueue->size()));
+        if (!IsSetState)
+            (*update)->Dump(AUTOPILOT__ERROR, "APDebug destiny: ");
+    }
     DoDestinyAction act;
         act.stamp = sEntityList.GetStamp();
     if (DoPackage/* or m_packaged*/) {
@@ -2204,7 +2248,16 @@ void Client::QueueDestinyUpdate(PyTuple **update, bool DoPackage /*false*/, bool
         PyTuple* t = dum.Encode();
         if (is_log_enabled(CLIENT__QUEUE_DUMP))
             t->Dump(CLIENT__QUEUE_DUMP, "");
-        SendNotification("DoDestinyUpdate", "clientID", &t, false);
+        // 2026-09-14 21:39 -0400 | theocheesecake: Controlled test: give the gate-arrival
+        // snapshot a notification sequence number, like queued movement updates.
+        // This tests client notification handling; it is not a load-complete
+        // acknowledgement and does not change the server autopilot flag.
+        const bool sequenceGateSnapshot = IsSetState && IsGateJump();
+        SendNotification("DoDestinyUpdate", "clientID", &t, sequenceGateSnapshot);
+        if (sequenceGateSnapshot)
+            sLog.Warning("NavDebug", "%s: GATE SetState sequenced sn=%u system=%u pending=%u",
+                GetName(), static_cast<unsigned int>(m_nextNotifySequence), GetSystemID(),
+                static_cast<unsigned int>(m_destinyUpdateQueue->size()));
         PyDecRef(t);
     } else {
         act.update = *update;
@@ -2214,6 +2267,14 @@ void Client::QueueDestinyUpdate(PyTuple **update, bool DoPackage /*false*/, bool
 }
 
 void Client::_SendQueuedUpdates() {
+    // 2026-09-14 15:37 -04:00 | theocheesecake: Identify when queued updates actually leave the server.
+    // 2026-09-14 16:17 -04:00 | theocheesecake: Omit event-only diagnostic flushes such as capacitor recharge.
+    if (IsAutoPilot() && !m_destinyUpdateQueue->empty()) {
+        sLog.Warning("APDebug", "%s: FLUSH destiny, system=%u, updates=%u, events=%u",
+            GetName(), GetSystemID(),
+            static_cast<unsigned int>(m_destinyUpdateQueue->size()),
+            static_cast<unsigned int>(m_destinyEventQueue->size()));
+    }
     if (!m_destinyUpdateQueue->empty()) {
         if (m_destinyEventQueue->empty()) {
             DoDestinyUpdateMain_2 dum;
@@ -2929,6 +2990,11 @@ bool Client::IsLoginWarping() {
 //
 // It is safe to repeatedly call this function without consequence.
 void Client::SetLoginWarpComplete() {
+    // 2026-09-14 21:06 -0400 | theocheesecake: Log only the login transition, not every later warp completion.
+    if (IsLoginWarping())
+        sLog.Warning("NavDebug", "%s: LOGIN warp complete state=%s timer=%d snapshot=%d binding=%d",
+            GetName(), GetStateName(m_clientState).c_str(), static_cast<int>(m_stateTimer.Enabled()),
+            static_cast<int>(m_setStateSent), static_cast<int>(m_beyonce));
     if (m_clientState == Player::State::LoginWarp) {
         m_clientState = Player::State::Idle;
     }

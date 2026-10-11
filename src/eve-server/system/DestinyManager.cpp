@@ -991,39 +991,26 @@ void DestinyManager::MoveObject() {
         speed = (m_maxShipSpeed * m_activeSpeedFraction);
     }
 
-    /*  Ships tend to "level out" when stopping.  try to mimic that here (wip)
-     *  this will also need *something* with ship agility
+    /*  Upstream damped m_shipHeading.y toward zero here, a tic at a time, to make
+     *  ships "level out" as they stop -- marked (wip), and alongside a note that
+     *  it still needed something doing with ship agility.  Removed.
      *
-     *  Renormalize: m_shipHeading is a unit direction, and nudging one component
-     *  of it without restoring the length leaves a vector that is merely short.
-     *  Measured off a warp down the vector (0.0588, 0.9799, 0.1908): 17 stopping
-     *  tics took y to 0.1299 and left x and z untouched, for a heading of length
-     *  0.238 -- exactly what Halt() logged as "0.059,0.130,0.191".
+     *  It mutated the ship's actual heading, which is not a cosmetic quantity: it
+     *  is the direction MoveObject() flies the ship and the vector every angle
+     *  test is measured against.  Nudging one component of a unit vector without
+     *  restoring its length left the heading merely short, so the ship crawled at
+     *  a fraction of its reported speed; restoring the length instead turns the
+     *  damping into a real rotation.  Simulated from a measured warp-exit heading
+     *  of (0.083,0.794,0.602), the stop swung it to (0.136,0.119,0.984) -- 45.7
+     *  degrees off, 40 of them within the first 17 tics.
      *
-     *  Everything downstream reads that as direction AND magnitude:
-     *    - MoveObject() moves the ship m_shipHeading * ticDistance, so it crawls
-     *      at 24% of the speed it reports -- 73 m/s while the client shows 306.
-     *    - IsTurn() and the warp-align gate in ProcessState() take acos() of
-     *      toVec.dotProduct(m_shipHeading).  A short heading caps that dot at its
-     *      own length, so a perfectly aligned ship measures acos(0.238) = 76deg
-     *      and can never satisfy either WARP_ALIGNMENT (6deg) or TURN_ALIGNMENT
-     *      (4deg).  The warp is accepted, the client says "warp drive active",
-     *      and InitWarp() is then unreachable for as long as the ship is pointed
-     *      that way.
-     *
-     *  Guard the degenerate case: y is the only component touched, so a heading
-     *  of pure +/-y shrinks toward the zero vector, which has no direction to
-     *  restore.
+     *  Either way it is wrong, and the correct behaviour is the simpler one: a
+     *  ship coming up on a gate holds the heading it arrived on and decelerates.
+     *  It does not pitch toward the ecliptic on the way down, and it certainly
+     *  does not swing 45 degrees off the gate it is about to jump through while
+     *  the client, handed a single GotoDirection on warp exit, goes on drawing the
+     *  heading it was given.
      */
-    if (m_stop and (m_timeFraction > 0.5f)) {
-        if (m_shipHeading.y < -0.15f) {
-            m_shipHeading.y += 0.05f;
-        } else if (m_shipHeading.y > 0.15f) {
-            m_shipHeading.y -= 0.05f;
-        }
-        if (m_shipHeading.length() > 0.0001)
-            m_shipHeading.normalize();
-    }
 
     if (m_orbiting)
         if (m_orbiting < Destiny::Ball::Orbit::TooClose) {

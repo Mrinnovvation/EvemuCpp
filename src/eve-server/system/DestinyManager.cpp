@@ -1309,8 +1309,31 @@ void DestinyManager::Follow() {
             m_prevSpeedFraction = 0.0f;
             // there is no accel/decel for tractor'd items
             m_activeSpeedFraction = m_userSpeedFraction = m_timeFraction = 1;
-        } else if (m_userSpeedFraction != 0.0f) {
-            SetSpeedFraction(1.0f);
+        } else if (m_userSpeedFraction < 1.0f) {
+            /*  Outside follow distance: close it.
+             *
+             *  This used to be conditional on m_userSpeedFraction != 0, so a ship
+             *  that was at rest -- or still coasting down, which is every ship that
+             *  has just left warp -- was never commanded to move at all.  It simply
+             *  finished stopping, and MoveObject()'s full-stop path then called
+             *  Halt(), which drops the ball out of FOLLOW and clears the follow
+             *  target, so Follow() was not called again either.
+             *
+             *  Measured on a gate approach: the client sent CmdFollowBall at
+             *  21:09:34 while the ship was coasting out of its warp, the server
+             *  never accelerated, and the ship came to a full stop 14,989m from
+             *  the gate and stayed there.  The client meanwhile flew its own copy
+             *  up to the gate and issued the jump from a range the server's ship
+             *  was nowhere near -- the same client/server split as before, just
+             *  arrived at from the opposite direction.
+             *
+             *  startMovement is required, not optional, when the ship is stopped:
+             *  SetSpeedFraction() returns early while m_stop is set, and only the
+             *  startMovement path clears it.  Pass it only in that case, because it
+             *  also bypasses the no-change guard, and passing it every tic would
+             *  restart the acceleration curve every tic.
+             */
+            SetSpeedFraction(1.0f, m_stop);
         }
     }
 

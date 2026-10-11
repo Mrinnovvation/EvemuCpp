@@ -491,63 +491,256 @@ PyResult Command_setattr(Client* who, CommandDB* db, EVEServiceManager &services
     }
 }
 
+/*  Resolve a type by numeric ID or by (quoted) name, the same way /create does.
+ *  Returns 0 and leaves the caller to report when nothing matches.
+ */
+static uint32 fit_resolve_type(CommandDB* db, const std::string& token) {
+    if (::IsNumber(token))
+        return (uint32)atoi(token.c_str());
+
+    for (const auto cur : badCharsSearch)
+        if (EvE::icontains(token, cur))
+            throw CustomError ("Name contains invalid characters");
+
+    std::map<uint32_t, std::string> matches;
+    if (!db->ItemSearch(token.c_str(), matches))
+        return 0;
+
+    uint32 exact = 0;
+    for (auto& m : matches)
+        if (strcasecmp(m.second.c_str(), token.c_str()) == 0)
+            exact = m.first;
+    if (exact)
+        return exact;
+    if (matches.size() == 1)
+        return matches.begin()->first;
+    if (matches.size() > 1)
+        throw CustomError ("'%s' is ambiguous.  Use the full item name.", token.c_str());
+    return 0;
+}
+
+/*  A type's category, looked up without creating the item, so the caller can
+ *  tell a module (one per slot) from a charge or drone (one stack) first.
+ */
+static uint8 fit_category_of(uint32 typeID) {
+    const ItemType* t = sItemFactory.GetType(typeID);
+    return (t == nullptr ? 0 : t->categoryID());
+}
+
+/*  Create one item of typeID and put it where it belongs on the active ship.
+ *
+ *  This deliberately walks the same path InventoryBound::MoveItems() uses for a
+ *  client-side autofit -- FindAvailableModuleSlot, then VerifyHoldType and
+ *  TryModuleLimitChecks, then AddItemByFlag -- so a command-built fit is subject
+ *  to exactly the same slot, skill, powergrid, CPU and calibration rules as one
+ *  assembled by hand in the fitting window.  Nothing here bypasses a check.
+ *
+ *  Modules go to a free slot of the right bank; charges and drones go to the
+ *  cargo hold and drone bay, since loading a charge into a specific module is
+ *  the client's job.  Returns the flag used, or flagIllegal on refusal, and
+ *  fills 'why' when it refuses.
+ */
+static EVEItemFlags fit_one_item(Client* pClient, uint32 typeID, uint32 qty, std::string& why) {
+    ShipItemRef sRef = pClient->GetShip();
+    if (sRef.get() == nullptr) {
+        why = "you have no active ship";
+        return flagIllegal;
+    }
+
+    ItemData idata(typeID, pClient->GetCharacterID(), locTemp, flagNone, qty);
+    InventoryItemRef iRef = sItemFactory.SpawnItem(idata);
+    if (iRef.get() == nullptr) {
+        why = "the item could not be created";
+        return flagIllegal;
+    }
+
+    EVEItemFlags toFlag = flagIllegal;
+    if (iRef->categoryID() == EVEDB::invCategories::Module) {
+        toFlag = sRef->FindAvailableModuleSlot(iRef);
+        if (toFlag == flagIllegal) {
+            why = "no free slot of the right type";
+            iRef->Delete();
+            return flagIllegal;
+        }
+    } else if (iRef->categoryID() == EVEDB::invCategories::Drone) {
+        toFlag = flagDroneBay;
+    } else {
+        toFlag = flagCargoHold;
+    }
+
+    /*  Any of these three throw a UserError the client renders properly --
+     *  NotEnoughPowerGrid, NotEnoughCpu, NotEnoughUpgradeCapacity and so on.
+     *  Clean up the item we speculatively created before letting it out, or a
+     *  refused fit leaves an orphan in locTemp.
+     */
+    try {
+        sRef->VerifyHoldType(toFlag, iRef, pClient);
+        if (IsModuleSlot(toFlag))
+            sRef->TryModuleLimitChecks(toFlag, iRef);
+        if (sRef->AddItemByFlag(toFlag, iRef, pClient) < 1) {
+            why = "the ship refused the item";
+            iRef->Delete();
+            return flagIllegal;
+        }
+    } catch (...) {
+        iRef->Delete();
+        throw;
+    }
+
+    return toFlag;
+}
+
 PyResult Command_fit(Client* who, CommandDB* db, EVEServiceManager &services, const Seperator& args)
 {
-    throw CustomError ("This command is currently disabled.");
-/*
-    uint32 typeID = 0;
-    uint32 itemID = 0;
-    EVEItemFlags flag = (EVEItemFlags)0;
-    uint32 powerSlot = 0;
-    uint32 useableSlot = 0;
-    std::string affectName = "online";
+    if (args.argCount() < 2)
+        throw CustomError ("Correct Usage: /fit [typeID|\"Type Name\"] [qty]");
 
-    if (args.argCount() < 3) {
-        throw CustomError ("Correct Usage: /fit [me|itemID] [typeID] [flag=??]");
-    }
+    if (who->InPod())
+        throw CustomError ("You cannot fit modules while in a pod.");
 
-    // DNA tells us what slot to use but we're going to ignore it
-    if (args.arg(1) == "me") {
-        itemID = who->GetShip()->itemID();
+    uint32 typeID = fit_resolve_type(db, args.arg(1));
+    if (typeID == 0)
+        throw CustomError ("No type found matching '%s'.", args.arg(1).c_str());
+
+    uint32 qty = 1;
+    if ((args.argCount() > 2) and args.isNumber(2))
+        qty = atoi(args.arg(2).c_str());
+    if (qty < 1)
+        qty = 1;
+
+    /*  Modules are fitted one per slot, so a qty>1 means "fill that many slots".
+     *  Charges and drones stack, so they are created in a single lot.
+     */
+    uint32 fitted = 0;
+    std::string why, firstWhy;
+    if (fit_category_of(typeID) == EVEDB::invCategories::Module) {
+        for (uint32 i = 0; i < qty; ++i) {
+            if (fit_one_item(who, typeID, 1, why) == flagIllegal) {
+                if (firstWhy.empty())
+                    firstWhy = why;
+                break;
+            }
+            ++fitted;
+        }
     } else {
-        itemID = atoi(args.arg(1).c_str());
+        if (fit_one_item(who, typeID, qty, why) != flagIllegal)
+            fitted = qty;
+        else
+            firstWhy = why;
     }
 
-    typeID = atoi(args.arg(2).c_str());
-    if (args.argCount() >= 4) {
-        std::string::size_type n = args.arg(3).find("flag=");
-        if (n != std::string::npos) {
-            flag = (EVEItemFlags)atoi(args.arg(3).substr(5).c_str());
+    if (fitted == 0)
+        throw CustomError ("Could not fit %s: %s.", args.arg(1).c_str(), firstWhy.c_str());
+
+    who->GetShip()->OnlineAll();
+
+    if (fitted < qty)
+        return new PyString("Fitted " + std::to_string(fitted) + " of " + std::to_string(qty)
+                            + " (" + firstWhy + "), then onlined.");
+    return new PyString("Fitted " + std::to_string(fitted) + "x " + args.arg(1) + " and onlined.");
+}
+
+PyResult Command_fitdna(Client* who, CommandDB* db, EVEServiceManager &services, const Seperator& args)
+{
+    if (args.argCount() < 2)
+        throw CustomError ("Correct Usage: /fitdna <dna>   e.g. 16240:3170;8:438;1:10190;3::");
+
+    if (who->InPod())
+        throw CustomError ("You cannot fit modules while in a pod.");
+
+    /*  Ship DNA, as GetShipDNA() emits it and as the client's fitting links
+     *  carry it:
+     *      <shipTypeID>:<typeID>;<qty>:<typeID>;<qty>: ... ::
+     *  The banks are positional in the client's own format, but every entry
+     *  carries its typeID and the slot bank is implied by the module's own
+     *  hiPower/medPower/loPower/rigSlot effect.  So the separators can simply be
+     *  walked and each entry routed by FindAvailableModuleSlot(), which also
+     *  makes a hand-written string with the sections in any order work.
+     *
+     *  The leading ship typeID is checked against the active ship rather than
+     *  swapping hulls: changing ship is a different operation with its own
+     *  undocking and cargo consequences, and doing it implicitly here would be
+     *  a surprise.
+     */
+    std::string dna(args.arg(1));
+    std::vector<std::string> parts;
+    size_t pos = 0;
+    while (pos <= dna.length()) {
+        size_t next = dna.find(':', pos);
+        if (next == std::string::npos) {
+            parts.push_back(dna.substr(pos));
+            break;
+        }
+        parts.push_back(dna.substr(pos, next - pos));
+        pos = next + 1;
+    }
+
+    if (parts.empty() or !::IsNumber(parts[0]))
+        throw CustomError ("That does not look like ship DNA.  Expected <shipTypeID>:<typeID>;<qty>: ...");
+
+    uint32 hullType = (uint32)atoi(parts[0].c_str());
+    if (hullType != who->GetShip()->typeID())
+        throw CustomError ("That fit is for typeID %u but you are flying a %s (%u).  Board the right hull first.", \
+                hullType, who->GetShip()->itemName().c_str(), who->GetShip()->typeID());
+
+    uint32 fitted = 0, skipped = 0;
+    std::string problems;
+    for (size_t i = 1; i < parts.size(); ++i) {
+        if (parts[i].empty())
+            continue;
+
+        uint32 typeID = 0, qty = 1;
+        size_t semi = parts[i].find(';');
+        if (semi == std::string::npos) {
+            if (!::IsNumber(parts[i]))
+                continue;
+            typeID = (uint32)atoi(parts[i].c_str());
+        } else {
+            std::string t = parts[i].substr(0, semi), q = parts[i].substr(semi + 1);
+            if (!::IsNumber(t))
+                continue;
+            typeID = (uint32)atoi(t.c_str());
+            if (::IsNumber(q))
+                qty = (uint32)atoi(q.c_str());
+        }
+        if ((typeID < 34) or (qty < 1))
+            continue;
+
+        bool isModule = (fit_category_of(typeID) == EVEDB::invCategories::Module);
+        uint32 lots = (isModule ? qty : 1);
+        uint32 each = (isModule ? 1 : qty);
+
+        for (uint32 n = 0; n < lots; ++n) {
+            std::string why;
+            EVEItemFlags used = flagIllegal;
+            try {
+                used = fit_one_item(who, typeID, each, why);
+            } catch (...) {
+                /*  A refusal on one module should not abandon the rest of the
+                 *  fit -- report it and carry on, so the pilot ends up with as
+                 *  much of the fit as the ship can actually take.
+                 */
+                why = "rejected by a fitting check";
+            }
+            if (used == flagIllegal) {
+                ++skipped;
+                if (problems.length() < 120) {
+                    problems += (problems.empty() ? "" : ", ");
+                    problems += sDataMgr.GetTypeName(typeID);
+                    problems += " (" + why + ")";
+                }
+                break;
+            }
+            ++fitted;
         }
     }
 
+    who->GetShip()->OnlineAll();
 
-    if (typeID == 0) {
-        throw PyException(MakeCustomError("Unable to create item of type %u.", typeID));
-    } else {
-        ItemData idata(
-                       typeID,
-                       who->GetCharacterID(),
-                       30002187, //temp location
-                       flagHangar,
-                       1
-                       );
-
-        InventoryItemRef i = sItemFactory.SpawnItem(idata);
-        if (!i) {
-            throw PyException(MakeCustomError("Unable to create item of type %u.", typeID));
-        }
-
-        //ShipItemRef ship = services->item_factory->GetShip(itemID);
-        //who->MoveItem(i->itemID(), itemID, flag);
-        //i->Move(itemID, flag);
-        //ship->AddItem(i);
-
-        //return new PyBool(true);
-    }
-    //return new PyBool(false);
-    return PyStatic.NewOne();
-    */
+    std::string reply = "Fitted " + std::to_string(fitted) + " item(s) and onlined.";
+    if (skipped)
+        reply += "  Skipped " + std::to_string(skipped) + ": " + problems + ".";
+    return new PyString(reply);
 }
 
 PyResult Command_giveallskills(Client* who, CommandDB* db, EVEServiceManager &services, const Seperator& args) {

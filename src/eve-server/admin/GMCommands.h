@@ -20,7 +20,9 @@ COMMAND( getattr, Acct::Role::VIP,
 COMMAND( setattr, Acct::Role::CONTENT,
          "(itemID) (attributeID) (value) - Sets attributeID of itemID to value." )
 COMMAND( fit, Acct::Role::VIP,
-        "(itemID) - Fits selected item to active ship." )
+        "(typeID|\"Type Name\") [qty] - Create and fit an item to the active ship, then online." )
+COMMAND( fitdna, Acct::Role::VIP,
+        "(dna) - Create and fit an entire fit from a ship DNA string, then online." )
 COMMAND( giveallskills, Acct::Role::ADMIN,
         "['me'|<characterID>] - gives ALL skills to designated character or self" )
 COMMAND( giveskill, Acct::Role::VIP,

@@ -462,34 +462,32 @@ void DestinyManager::SetSpeedFraction(float fraction/*1.0*/, bool startMovement/
     if ((m_ballMode == Destiny::Ball::Mode::WARP) and IsWarping()) {
         // set state to Ball::Mode::GOTO after setting warp decel variables, so warp completion will decel properly
         m_ballMode = Destiny::Ball::Mode::GOTO;
-        // Tell client warp has ended and ship is decelerating in current heading direction.
-        // Without this, the client continues its warp animation while the server runs GOTO decel,
-        // causing a visible 180-degree flip on warp exit.
-        std::vector<PyTuple*> updates;
-        CmdGotoDirection du;
-            du.entityID = mySE->GetID();
-            du.x = m_shipHeading.x;
-            du.y = m_shipHeading.y;
-            du.z = m_shipHeading.z;
-        updates.push_back(du.Encode());
-        /*  Send the throttle with the direction.  GotoDirection on its own says
-         *  only which way to fly, so the client kept whatever speed fraction it
-         *  was last given -- and the last thing it was given is the 1.0 that the
-         *  warp-align gate sets to spin the ship up.  So on every warp exit the
-         *  client was told "fly this way" and nothing else, and flew off at full
-         *  speed forever while the server ran its GOTO decel and parked.
+        /*  Send the throttle only.  Nothing else: no CmdGotoDirection.
          *
-         *  Measured: ship stopped 205.6m from the centre of gate 50013890, well
-         *  inside jump range, and stayed there under Halt() for minutes, while the
-         *  pilot watched their own ship drift away from the gate at 305 m/s -- the
-         *  Catalyst's maximum.  Autopilot gave up because from the client's side
-         *  the gate was receding.
+         *  A GotoDirection was added here to stop "a visible 180-degree flip on
+         *  warp exit", on the reasoning that the client goes on animating the warp
+         *  while the server runs its GOTO decel.  The flip happens anyway with it
+         *  in place -- the pilot still reports the ship swinging round and
+         *  thrusting away from the gate before jumping -- so it buys nothing, and
+         *  it is a contradictory order: a *goto* in some direction, carrying a
+         *  throttle of zero.
          *
-         *  Two things hid this.  The branch returns before the CmdSetSpeedFraction
-         *  block below, and that block is guarded by "if (fraction)", so a
-         *  commanded stop -- fraction 0.0f, which is what WarpStop() passes -- is
-         *  falsy and would not have been sent from there either.
+         *  Measured at the warp exit that produced that report: the ship was
+         *  1000.8m from the centre of gate 50003395 and the direction sent was
+         *  0.0 degrees off the bearing to it.  The server had the ship aimed
+         *  squarely at the gate, holding a stable unit heading of
+         *  (0.164,0.777,0.608) for the whole stop.  So the swing is the client's
+         *  reading of these orders, not the server's idea of where the ship points.
+         *
+         *  What the server actually means is "your warp is over, throttle to zero,
+         *  keep your heading", which is one update, and is the behaviour live is
+         *  described as having: a ship comes up on a gate pointing at it, slows,
+         *  and stops.  The speed fraction is what matters and must be sent --
+         *  without it the client keeps the 1.0 the align gate set and flies off at
+         *  full speed (see b4d0cf49) -- while the direction is the client's own
+         *  business.
          */
+        std::vector<PyTuple*> updates;
         CmdSetSpeedFraction sf;
             sf.entityID = mySE->GetID();
             sf.fraction = fraction;

@@ -2868,4 +2868,24 @@ void ShipSE::AbandonDrones() {
     }
     m_shipRef->SetAttribute(AttrDroneBandwidthLoad, load, false); // client dont care
 }
+
+void ShipSE::AbandonDrone(SystemEntity* pSE) {
+    auto it = m_drones.find(pSE->GetID());
+    if (it == m_drones.end())
+        return;
+    if (pSE->IsDroneSE()) {
+        pSE->GetDroneSE()->Abandon();
+        EvilNumber load = m_shipRef->GetAttribute(AttrDroneBandwidthLoad);
+        load -= pSE->GetSelf()->GetAttribute(AttrDroneBandwidthUsed);
+        m_shipRef->SetAttribute(AttrDroneBandwidthLoad, load, false);
+    }
+    m_drones.erase(it);
+}
+
+void ShipSE::AddDroneToFlight(DroneSE* pDrone) {
+    m_drones.emplace(pDrone->GetID(), pDrone->GetSelf().get());
+    EvilNumber load = m_shipRef->GetAttribute(AttrDroneBandwidthLoad);
+    load += pDrone->GetSelf()->GetAttribute(AttrDroneBandwidthUsed);
+    m_shipRef->SetAttribute(AttrDroneBandwidthLoad, load, false);
+}
 //AttrDroneControlDistance

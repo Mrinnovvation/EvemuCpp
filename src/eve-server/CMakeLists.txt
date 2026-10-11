@@ -542,7 +542,8 @@ SET( ship_modules_INCLUDE
      "${TARGET_INCLUDE_DIR}/ship/modules/SuperWeapon.h"
      "${TARGET_INCLUDE_DIR}/ship/modules/TurretFormulas.h"
      "${TARGET_INCLUDE_DIR}/ship/modules/TurretModule.h"
-     "${TARGET_INCLUDE_DIR}/ship/modules/CynoModule.h" )
+     "${TARGET_INCLUDE_DIR}/ship/modules/CynoModule.h"
+     "${TARGET_INCLUDE_DIR}/ship/modules/ProbeLauncher.h" )
 SET( ship_modules_SOURCE
      "${TARGET_SOURCE_DIR}/ship/modules/ActiveModule.cpp"
      "${TARGET_SOURCE_DIR}/ship/modules/GenericModule.cpp"
@@ -556,7 +557,8 @@ SET( ship_modules_SOURCE
      "${TARGET_SOURCE_DIR}/ship/modules/SuperWeapon.cpp"
      "${TARGET_SOURCE_DIR}/ship/modules/TurretFormulas.cpp"
      "${TARGET_SOURCE_DIR}/ship/modules/TurretModule.cpp"
-     "${TARGET_SOURCE_DIR}/ship/modules/CynoModule.cpp" )
+     "${TARGET_SOURCE_DIR}/ship/modules/CynoModule.cpp"
+     "${TARGET_SOURCE_DIR}/ship/modules/ProbeLauncher.cpp" )
 
 SET( standing_INCLUDE
      "${TARGET_INCLUDE_DIR}/standing/Standing.h"

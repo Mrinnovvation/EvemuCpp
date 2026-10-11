@@ -74,6 +74,8 @@ public:
     uint32 GetFalloff()                                 { return m_falloff; }
     uint32 GetAttackRange()                             { return m_maxAttackRange; }
     double GetTrackingSpeed()                           { return m_trackingSpeed; }
+    uint16 GetArmorRepairDuration()   const             { return m_armorRepairDuration; }
+    uint16 GetShieldBoosterDuration() const             { return m_shieldBoosterDuration; }
 
     // npcAI methods
     void DisableWarpOutTimer()                          { m_warpOutTimer.Disable(); }

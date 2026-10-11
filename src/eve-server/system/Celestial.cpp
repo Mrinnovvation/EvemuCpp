@@ -28,6 +28,7 @@
 
 #include "StaticDataMgr.h"
 #include "system/Celestial.h"
+#include "system/SystemBubble.h"
 #include "system/SystemManager.h"
 
 /*
@@ -186,6 +187,38 @@ void WormholeSE::EncodeDestiny(Buffer& into)
         main.formationID = 0xFF;
     into.Append( main );
     _log(SE__DESTINY, "WormholeSE::EncodeDestiny(): %s - id:%lli, mode:%u, flags:0x%X", GetName(), head.entityID, head.mode, head.flags);
+}
+
+void WormholeSE::UpdateMassState(int64 remaining, int64 maxMass) {
+    float ratio = (maxMass > 0) ? (float)remaining / (float)maxMass : 0.0f;
+
+    // Update wormhole size based on remaining mass fraction
+    if (ratio > 0.5f)
+        m_wormholeSize = WormHole::Size::Full / 10.0f;
+    else if (ratio > 0.1f)
+        m_wormholeSize = WormHole::Size::Reduced / 10.0f;
+    else
+        m_wormholeSize = WormHole::Size::Disrupted / 10.0f;
+
+    // Update age based on mass depletion (time-based aging handled by WormholeMgr)
+    if (ratio < 0.1f)
+        m_wormholeAge = WormHole::Age::Closing;
+    else if (ratio < 0.5f && m_wormholeAge < WormHole::Age::Decaying)
+        m_wormholeAge = WormHole::Age::Decaying;
+
+    ++m_count;
+}
+
+void WormholeSE::SendSlimUpdate() {
+    if (SysBubble() == nullptr)
+        return;
+    PyTuple* slimData = new PyTuple(2);
+        slimData->SetItem(0, new PyLong(GetID()));
+        slimData->SetItem(1, new PyObject("foo.SlimItem", MakeSlimItem()));
+    PyTuple* itemData = new PyTuple(2);
+        itemData->SetItem(0, new PyString("OnSlimItemChange"));
+        itemData->SetItem(1, slimData);
+    SysBubble()->BubblecastDestinyUpdate(&itemData, "OnSlimItemChange");
 }
 
 PyDict* WormholeSE::MakeSlimItem()

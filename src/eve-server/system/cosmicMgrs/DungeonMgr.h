@@ -96,6 +96,7 @@ private:
     SpawnMgr* m_spawnMgr;
     SystemManager* m_system;
     EVEServiceManager& m_services;
+    Timer m_procTimer;
 
     int8 GetFaction(uint32 factionID);
     int8 GetRandLevel();

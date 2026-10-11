@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/lordr/.claude/projects/C--Users-lordr-source-repos-evemu-Crucible-Claude/memory//**)",
+      "Read(//c/Users/lordr/.claude/projects/C--Users-lordr-source-repos-evemu-Crucible-Claude/memory/**)",
+      "Bash(xargs grep:*)",
+      "Bash(gunzip -c mktOrders.sql.gz)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git push:*)",
+      "Bash(gunzip:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(ls -la /c/Users/lordr/source/repos/evemu_Crucible_Claude/src/eve-server/system/*.h)",
+      "Bash(git remote:*)",
+      "Bash(zcat mapRegions.sql.gz)",
+      "Bash(xargs -I{} basename {} .sql.gz)",
+      "Bash(zcat mktOrders.sql.gz)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(git commit -m ' *)",
+      "Bash(awk -F, '{print $NF}')",
+      "Bash(sed \"s/^INSERT INTO.*VALUES //\")",
+      "Bash(sed \"s/^.*VALUES //\")",
+      "Bash(awk -F',' '{print $1 \",\" $2}')",
+      "Bash(awk -F',' '{print $1}')",
+      "Bash(awk -F',' '{if \\($2 ~ /^\\(4|5|6|7|8|9|16|17|18|22|23|24|25|32|34|35|39|40|41|42|43|46\\)$/\\) print $1}')",
+      "Bash(sed 's/^\\(//')",
+      "Bash(awk -F',' '{print $2}')",
+      "Bash(sed \"s/\\),$/\\\\n/g\")",
+      "Bash(awk -F',' '{print $\\(NF-2\\)}')",
+      "Bash(awk -F',' '{print $12}')"
+    ]
+  }
+}

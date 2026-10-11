@@ -89,18 +89,17 @@ PyResult MarketProxyService::GetCorporationOrders(PyCallArgs &call) {
     return MarketDB::GetOrdersForOwner(call.client->GetCorporationID());
 }
 
-/** @todo update these to use market manager and cache instead of hitting db? */
 // station, system, region based on selection in market window
 PyResult MarketProxyService::GetStationAsks(PyCallArgs &call) {
-    return MarketDB::GetStationAsks(call.client->GetStationID());
+    return sMktMgr.GetStationAsks(call.client->GetStationID());
 }
 
 PyResult MarketProxyService::GetSystemAsks(PyCallArgs &call) {
-    return MarketDB::GetSystemAsks(call.client->GetSystemID());
+    return sMktMgr.GetSystemAsks(call.client->GetSystemID());
 }
 
 PyResult MarketProxyService::GetRegionBest(PyCallArgs &call) {
-    return MarketDB::GetRegionBest(call.client->GetRegionID());
+    return sMktMgr.GetRegionBest(call.client->GetRegionID());
 }
 
 // this is called 3x on every market transaction
@@ -345,7 +344,7 @@ PyResult MarketProxyService::PlaceCharOrder(PyCallArgs &call, PyInt* stationID, 
         }
 
         //send notification of new order...
-        sMktMgr.InvalidateOrdersCache(call.client->GetRegionID(), typeID->value());
+        sMktMgr.InvalidateOrdersCache(call.client->GetRegionID(), typeID->value(), stationID->value());
         sMktMgr.SendOnOwnOrderChanged(call.client, orderID, Market::Action::Add, useCorp->value());
     } else {
         _log(MARKET__DUMP, "Mkt::PlaceCharOrder(): appears to be a sell order");
@@ -625,7 +624,7 @@ PyResult MarketProxyService::PlaceCharOrder(PyCallArgs &call, PyInt* stationID, 
         }
 
         //notify client about new order.
-        sMktMgr.InvalidateOrdersCache(call.client->GetRegionID(), typeID->value());
+        sMktMgr.InvalidateOrdersCache(call.client->GetRegionID(), typeID->value(), stationID->value());
         sMktMgr.SendOnOwnOrderChanged(call.client, orderID, Market::Action::Add, useCorp->value());
     }
 
@@ -669,7 +668,7 @@ PyResult MarketProxyService::ModifyCharOrder(PyCallArgs &call, PyInt* orderID, P
         return nullptr;
     }
 
-    sMktMgr.InvalidateOrdersCache(call.client->GetRegionID(), oInfo.typeID);
+    sMktMgr.InvalidateOrdersCache(call.client->GetRegionID(), oInfo.typeID, oInfo.stationID);
     sMktMgr.SendOnOwnOrderChanged(call.client, orderID->value(), Market::Action::Modify, oInfo.isCorp);
 
     return nullptr;
@@ -712,7 +711,7 @@ PyResult MarketProxyService::CancelCharOrder(PyCallArgs &call, PyInt* orderID, P
         return nullptr;
     }
 
-    sMktMgr.InvalidateOrdersCache(call.client->GetRegionID(), oInfo.typeID);
+    sMktMgr.InvalidateOrdersCache(call.client->GetRegionID(), oInfo.typeID, oInfo.stationID);
     sMktMgr.SendOnOwnOrderChanged(call.client, orderID->value(), Market::Action::Expiry, oInfo.isCorp, order);
 
     return nullptr;

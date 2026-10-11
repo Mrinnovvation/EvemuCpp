@@ -142,6 +142,54 @@ void MarketMgr::UpdatePriceHistory()
      * SELECT    transactionDate AS historyDate,    MIN(price) AS lowPrice,    MAX(price) AS highPrice,    AVG(price) AS avgPrice,    quantity AS volume,    COUNT(transactionID) AS orders FROM mktTransactions  WHERE regionID=10000030 AND typeID=487    AND transactionType=0     AND historyDate > 20604112 GROUP BY historyDate
      */
 
+PyRep* MarketMgr::GetStationAsks(uint32 stationID) {
+    PyRep* result(nullptr);
+    std::string method_name("GetStationAsks_");
+    method_name += std::to_string(stationID);
+    ObjectCachedMethodID method_id("marketProxy", method_name.c_str());
+    if (!this->m_cache->IsCacheLoaded(method_id)) {
+        result = MarketDB::GetStationAsks(stationID);
+        if (result == nullptr) {
+            _log(MARKET__DB_ERROR, "GetStationAsks - failed to load cache, generating empty contents.");
+            result = PyStatic.NewNone();
+        }
+        this->m_cache->GiveCache(method_id, &result);
+    }
+    return this->m_cache->MakeObjectCachedMethodCallResult(method_id);
+}
+
+PyRep* MarketMgr::GetSystemAsks(uint32 solarSystemID) {
+    PyRep* result(nullptr);
+    std::string method_name("GetSystemAsks_");
+    method_name += std::to_string(solarSystemID);
+    ObjectCachedMethodID method_id("marketProxy", method_name.c_str());
+    if (!this->m_cache->IsCacheLoaded(method_id)) {
+        result = MarketDB::GetSystemAsks(solarSystemID);
+        if (result == nullptr) {
+            _log(MARKET__DB_ERROR, "GetSystemAsks - failed to load cache, generating empty contents.");
+            result = PyStatic.NewNone();
+        }
+        this->m_cache->GiveCache(method_id, &result);
+    }
+    return this->m_cache->MakeObjectCachedMethodCallResult(method_id);
+}
+
+PyRep* MarketMgr::GetRegionBest(uint32 regionID) {
+    PyRep* result(nullptr);
+    std::string method_name("GetRegionBest_");
+    method_name += std::to_string(regionID);
+    ObjectCachedMethodID method_id("marketProxy", method_name.c_str());
+    if (!this->m_cache->IsCacheLoaded(method_id)) {
+        result = MarketDB::GetRegionBest(regionID);
+        if (result == nullptr) {
+            _log(MARKET__DB_ERROR, "GetRegionBest - failed to load cache, generating empty contents.");
+            result = PyStatic.NewNone();
+        }
+        this->m_cache->GiveCache(method_id, &result);
+    }
+    return this->m_cache->MakeObjectCachedMethodCallResult(method_id);
+}
+
 // there is a 1 day difference (from 0000UTC) between "Old" and "New" prices
 PyRep *MarketMgr::GetNewPriceHistory(uint32 regionID, uint32 typeID) {
     PyRep* result(nullptr);
@@ -259,13 +307,31 @@ void MarketMgr::SendOnOwnOrderChanged(Client* pClient, uint32 orderID, uint8 act
 }
 
 
-void MarketMgr::InvalidateOrdersCache(uint32 regionID, uint32 typeID) {
-    std::string method_name ("GetOrders_");
+void MarketMgr::InvalidateOrdersCache(uint32 regionID, uint32 typeID, uint32 stationID/*0*/) {
+    std::string method_name("GetOrders_");
     method_name += std::to_string(regionID);
     method_name += "_";
     method_name += std::to_string(typeID);
     ObjectCachedMethodID method_id("marketProxy", method_name.c_str());
     this->m_cache->InvalidateCache(method_id);
+
+    if (stationID == 0)
+        return;
+
+    // Invalidate the asks caches for this station, system, and region so that
+    // the next market-browser open reflects the changed order.
+    std::string s("GetStationAsks_");
+    s += std::to_string(stationID);
+    this->m_cache->InvalidateCache(ObjectCachedMethodID("marketProxy", s.c_str()));
+
+    uint32 solarSystemID = sDataMgr.GetStationSystem(stationID);
+    s = "GetSystemAsks_";
+    s += std::to_string(solarSystemID);
+    this->m_cache->InvalidateCache(ObjectCachedMethodID("marketProxy", s.c_str()));
+
+    s = "GetRegionBest_";
+    s += std::to_string(regionID);
+    this->m_cache->InvalidateCache(ObjectCachedMethodID("marketProxy", s.c_str()));
 }
 
 /** @todo take off market overhead fees */
@@ -529,7 +595,7 @@ bool MarketMgr::ExecuteBuyOrder(Client* seller, uint32 orderID, InventoryItemRef
             return false;
         }
 
-        InvalidateOrdersCache(oInfo.regionID, typeID);
+        InvalidateOrdersCache(oInfo.regionID, typeID, stationID);
 
         if (isPlayer or isCorp) {
             SendOnOwnOrderChanged(seller, orderID, Market::Action::Modify, useCorp);
@@ -546,7 +612,7 @@ bool MarketMgr::ExecuteBuyOrder(Client* seller, uint32 orderID, InventoryItemRef
         return false;
     }
 
-    InvalidateOrdersCache(oInfo.regionID, typeID);
+    InvalidateOrdersCache(oInfo.regionID, typeID, stationID);
 
     if (isPlayer or isCorp) {
         SendOnOwnOrderChanged(seller, orderID, Market::Action::Expiry, useCorp, order);
@@ -665,7 +731,7 @@ void MarketMgr::ExecuteSellOrder(Client* buyer, uint32 orderID, uint32 sellQuant
             return;
         }
 
-        InvalidateOrdersCache(oInfo.regionID, typeID);
+        InvalidateOrdersCache(oInfo.regionID, typeID, stationID);
 
         SendOnOwnOrderChanged(seller, orderID, Market::Action::Expiry, useCorp, order);
     } else {
@@ -677,7 +743,7 @@ void MarketMgr::ExecuteSellOrder(Client* buyer, uint32 orderID, uint32 sellQuant
             _log(MARKET__ERROR, "ExecuteSellOrder - Failed to alter quantity of order #%u.", orderID);
             return;
         }
-        InvalidateOrdersCache(oInfo.regionID, typeID);
+        InvalidateOrdersCache(oInfo.regionID, typeID, stationID);
 
         SendOnOwnOrderChanged(seller, orderID, Market::Action::Modify, useCorp);
     }

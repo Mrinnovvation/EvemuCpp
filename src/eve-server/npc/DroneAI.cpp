@@ -21,6 +21,7 @@ DroneAIMgr::DroneAIMgr(DroneSE* who)
 : m_state(DroneAI::State::Idle),
   m_pDrone(who),
   m_assignedShip(nullptr),
+  m_returnToBay(false),
   m_mainAttackTimer(0),// dont start timer until we have a target
   m_processTimer(0),
   m_beginFindTarget(0),
@@ -93,9 +94,15 @@ void DroneAIMgr::Process() {
             CheckDistance(pTarget);
         } break;
 
-        case DroneAI::State::Departing: { // return to ship.  when close enough, set lazy orbit
-            if (m_pDrone->GetPosition().distance(m_assignedShip->GetPosition()) < m_entityOrbitRange)
+        case DroneAI::State::Departing: { // return to ship.  when close enough, scoop or orbit
+            if (m_pDrone->GetPosition().distance(m_assignedShip->GetPosition()) < m_entityOrbitRange) {
+                if (m_returnToBay) {
+                    m_returnToBay = false;
+                    m_assignedShip->ScoopDrone(m_pDrone);  // removes from flight list, calls Offline()
+                    return;                                  // drone is offline; do not touch state further
+                }
                 SetIdle();
+            }
         } break;
         // not sure how im gonna do these...
         case DroneAI::State::Fleeing:
@@ -135,8 +142,13 @@ int8 DroneAIMgr::GetState() {
 void DroneAIMgr::Return() {
     m_assignedShip = m_pDrone->GetHomeShip();
     m_pDrone->DestinyMgr()->SetMaxVelocity(m_chaseSpeed);
-    m_pDrone->DestinyMgr()->Follow(m_assignedShip, m_entityOrbitRange);
+    m_pDrone->DestinyMgr()->Follow(m_assignedShip, 0);  // fly directly to ship; Departing handler checks < m_entityOrbitRange
     m_state = DroneAI::State::Departing;
+}
+
+void DroneAIMgr::ReturnBay() {
+    m_returnToBay = true;
+    Return();   // sets Departing state; drone flies to ship; Departing handler will scoop
 }
 
 void DroneAIMgr::SetIdle() {

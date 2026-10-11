@@ -267,18 +267,16 @@ void TargetManager::ClearTarget(SystemEntity *tSE) {
 }
 
 void TargetManager::ClearModules() {
-    auto cur = m_modules.begin ();
-    auto end = m_modules.end ();
+    // Snapshot then clear before invoking callbacks: AbortCycle() -> ActiveModule::Clear()
+    // -> RemoveTargetModule() -> m_modules.erase(), which would invalidate iteration.
+    std::vector<ActiveModule*> snapshot;
+    snapshot.reserve(m_modules.size());
+    for (auto& kv : m_modules)
+        snapshot.push_back(kv.second);
+    m_modules.clear();
 
-    ActiveModule* module (nullptr);
-
-    while (cur != end) {
-        module = cur->second;
-
-        cur = m_modules.erase (cur);
-
-        module->AbortCycle ();
-    }
+    for (ActiveModule* module : snapshot)
+        module->AbortCycle();
 }
 
 void TargetManager::ClearAllTargets(bool notify/*true*/) {
@@ -568,24 +566,16 @@ void TargetManager::Destroyed()
 
     ClearAllTargets();
 
-    // iterate thru the map of modules targeting this object, and call Deactivate on each.
-    auto cur = m_modules.begin ();
-    auto end = m_modules.end ();
+    // Snapshot then clear before invoking callbacks: Deactivate()/AbortCycle() -> ActiveModule::Clear()
+    // -> RemoveTargetModule() -> m_modules.erase(), which would invalidate iteration.
+    std::vector<ActiveModule*> snapshot;
+    snapshot.reserve(m_modules.size());
+    for (auto& kv : m_modules)
+        snapshot.push_back(kv.second);
+    m_modules.clear();
 
-    ActiveModule* module (nullptr);
-
-    while (cur != end) {
-        // TODO: THIS IS A HACK TO FIX A PROBLEM ON THE TARGET MANAGER
-        // TODO: WHEN A MODULE'S CYCLE IS ABORTED BY THIS FUNCTION, IT ENDS UP CALLING
-        // TODO: ActiveModule::Clear DOWN THE ROAD, WHICH IN TURN REMOVES ITEMS FROM THE m_modules
-        // TODO: MAP WHILE WE'RE ITERATING IT, AND THAT'S A NO-NO UNLESS YOU CAN GET THE NEW
-        // TODO: ITERATOR FROM THE ERASE FUNCTION, THAT'S WHY IT'S HANDLED HERE INSTEAD OF LETTING
-        // TODO: THE ActiveModule::Clear TAKE CARE OF IT
-        module = cur->second;
-
-        // this should advance the iterator without needing to do any cur++ or anything
-        cur = m_modules.erase (cur);
-        //  some modules should immediately cease cycle when target destroyed.  miners are NOT in this call
+    // Some modules should immediately cease cycle when target is destroyed; miners are NOT in this call.
+    for (ActiveModule* module : snapshot) {
         switch (module->groupID()) {
             case EVEDB::invGroups::Target_Painter:
             case EVEDB::invGroups::Tracking_Disruptor:

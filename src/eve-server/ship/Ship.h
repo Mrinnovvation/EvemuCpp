@@ -364,8 +364,10 @@ public:
     float CalculateRechargeRate(float Capacity, float RechargeTimeMS, float Current);
 
     void AbandonDrones();
+    void AbandonDrone(SystemEntity* pSE);   // single-drone abandon
     bool LaunchDrone(InventoryItemRef dRef);
     void ScoopDrone(SystemEntity* pSE);
+    void AddDroneToFlight(DroneSE* pDrone); // register drone for reconnect
     // returns current count of drones in space for this ship
     uint8 DroneCount()                                  { return m_drones.size(); }
 

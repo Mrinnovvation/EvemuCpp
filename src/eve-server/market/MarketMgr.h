@@ -51,11 +51,17 @@ public:
     //forces a refresh of market data.
     void SendOnOwnOrderChanged(Client* pClient, uint32 orderID, uint8 action, bool isCorp = false, PyRep* order = nullptr);
 
-    void InvalidateOrdersCache(uint32 regionID, uint32 typeID);
+    // stationID is optional; when non-zero the asks caches for that
+    // station/system/region are also invalidated.
+    void InvalidateOrdersCache(uint32 regionID, uint32 typeID, uint32 stationID = 0);
 
     bool NeedsUpdate()                                  { return m_timeStamp > GetFileTimeNow()?false:true; }
 
     PyRep* GetMarketGroups()                            { PyIncRef(m_marketGroups); return m_marketGroups; }
+    // cached — invalidated by InvalidateOrdersCache when stationID is provided
+    PyRep* GetStationAsks(uint32 stationID);
+    PyRep* GetSystemAsks(uint32 solarSystemID);
+    PyRep* GetRegionBest(uint32 regionID);
     // cached
     PyRep* GetNewPriceHistory(uint32 regionID, uint32 typeID);
     // cached

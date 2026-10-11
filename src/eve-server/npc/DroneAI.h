@@ -59,6 +59,7 @@ public:
 
     void SetIdle();
     void Return();
+    void ReturnBay();   // fly back and scoop into drone bay on arrival
     void AssignShip(ShipSE* pSE)                        { m_assignedShip = pSE; }
 
 protected:
@@ -85,6 +86,8 @@ private:
     uint32 m_targetRange;
     uint32 m_armorRepairDuration;
     uint32 m_shieldBoosterDuration;
+
+    bool m_returnToBay;     // if true, scoop drone into bay when it reaches the ship
 
     DroneSE* m_pDrone;
     ShipSE* m_assignedShip;

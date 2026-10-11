@@ -416,6 +416,17 @@ void DestinyManager::SetSpeedFraction(float fraction/*1.0*/, bool startMovement/
     if (m_ballMode == Destiny::Ball::Mode::WARP) {
         // set state to Ball::Mode::GOTO after setting warp decel variables, so warp completion will decel properly
         m_ballMode = Destiny::Ball::Mode::GOTO;
+        // Tell client warp has ended and ship is decelerating in current heading direction.
+        // Without this, the client continues its warp animation while the server runs GOTO decel,
+        // causing a visible 180-degree flip on warp exit.
+        std::vector<PyTuple*> updates;
+        CmdGotoDirection du;
+            du.entityID = mySE->GetID();
+            du.x = m_shipHeading.x;
+            du.y = m_shipHeading.y;
+            du.z = m_shipHeading.z;
+        updates.push_back(du.Encode());
+        SendDestinyUpdate(updates);
         return;
     }
 
@@ -1178,10 +1189,12 @@ void DestinyManager::Follow() {
     //   ignoring it meant approaching anything large stopped one target-radius too late (a titan
     //   is 6800-9000m), driving you into the hull.  m_targetDistance is a double - the old uint32
     //   cast also wrapped any negative (already inside the radius) into a huge positive.
+    //  (merge: rumpel/master clamped the same negative wrap without the target radius term;
+    //   this keeps the clamp and the radius, which is the superset of both.)
     double surfaceDist = heading.length() - m_radius - m_targetEntity.second->GetRadius();
     m_targetDistance = (surfaceDist > 0.0 ? surfaceDist : 0.0);
 
-    if (m_targetDistance < m_followDistance) {
+    if (rawDist <= (double)m_followDistance) {
         if (mySE->HasPilot())
             if (mySE->GetPilot()->IsAutoPilot()) {
                 SetSpeedFraction(0.1);
@@ -1563,6 +1576,13 @@ void DestinyManager::InitWarp() {
     if (m_turning) {
         ClearTurn();
     }
+    // Reset movement state so warp always starts clean, regardless of prior
+    // decel/accel state (e.g. post-warp decel when rapidly re-warping).
+    m_accel = false;
+    m_decel = false;
+    m_prevSpeed = 0.0f;
+    m_prevSpeedFraction = 0.0f;
+    m_maxSpeed = m_maxShipSpeed;
 
     if (is_log_enabled(DESTINY__WARP_TRACE)) {
         _log(
@@ -1812,7 +1832,13 @@ void DestinyManager::WarpDecel(uint16 sec_into_warp) {
                 mySE->GetName(), mySE->GetID(), decelTime, sec_into_warp, currentShipSpeed, m_targetDistance);
 
     WarpUpdate(currentShipSpeed);
-    if (currentShipSpeed <= m_speedToLeaveWarp)
+    // Fire WarpStop when remaining distance equals the GOTO stopping distance.
+    // UpdateVelocity() always caps exit speed to m_speedToLeaveWarp, so the
+    // stopping distance is fixed: m_speedToLeaveWarp * m_shipAgility.
+    // Triggering early leaves exactly that much runway so GOTO decel coasts
+    // the ship to a halt at m_targetPoint instead of overshooting by that amount.
+    double stoppingDist = static_cast<double>(m_speedToLeaveWarp) * m_shipAgility;
+    if (currentShipSpeed <= m_speedToLeaveWarp || (m_targetDistance > 0.0 && m_targetDistance <= stoppingDist))
         WarpStop(currentShipSpeed);
 }
 
@@ -1878,7 +1904,6 @@ void DestinyManager::WarpStop(double currentShipSpeed) {
         _log(AUTOPILOT__MESSAGE, "Destiny::WarpStop(): %s(%u) - Warp complete.", mySE->GetName(), mySE->GetID());
         mySE->GetPilot()->SetLoginWarpComplete();
     }
-    m_targetPoint += (m_warpState->warp_vector *10000);
     // SetSpeedFraction() checks for m_state = Warp and warpstate != null to set decel variables correctly with warp decel.
     //   have to call this BEFORE deleting or reseting m_state or WarpState.
     SetSpeedFraction(0.0f);
@@ -1889,26 +1914,23 @@ void DestinyManager::WarpStop(double currentShipSpeed) {
         mySE->GetNPCSE()->GetAIMgr()->WarpOutComplete();
     }
 
-    // TODO: when exiting warp, and attempting to warp again shortly after, the
-    // ball mode reaches a weird state where it goes from Warp to a regular
-    // move. Halting the ship after warp completes seems to fix this, but it's
-    // not a good fix, because the client shows that the ship moves a few meters
-    // forward while decelerating - meaning that the client and server are
-    // briefly out of sync because the server thinks the ship is halted.
-    Halt();
+    // Post-warp deceleration is handled by SetSpeedFraction(0.0f) above, which
+    // set m_ballMode=GOTO and configured decel variables to match the client's
+    // own decel animation.  Rapid re-warp is handled by the movement state reset
+    // in InitWarp().
+    //  (merge: this replaces an explicit Halt() here, which its own author
+    //   described as "not a good fix" because it desynced the client by a few
+    //   meters while the client was still animating deceleration.)
 
-    // 2026-09-14 21:21 -0400 | theocheesecake: Test a fresh system snapshot after login return,
-    // when movement is stopped and the ship is in its destination bubble.
-    // Defer through the existing ballpark timer instead of sending SetState
-    // immediately ahead of this tick's queued warp-position updates.
-    // Ordinary warps and stargate arrivals do not schedule this refresh.
+    // A login warp arrives with the client holding a stale snapshot, so force a
+    // fresh one through the existing ballpark timer rather than sending SetState
+    // immediately ahead of this tic's queued position updates.  Ordinary warps
+    // and stargate arrivals do not need this.
     if (completedLoginWarp) {
         Client* pilot = mySE->GetPilot();
         pilot->SetStateSent(false);
         pilot->SetBallParkTimer(0);
         pilot->SetBallParkTimer(Player::Timer::Default);
-        sLog.Warning("NavDebug", "%s: LOGIN arrival snapshot scheduled system=%u mode=%u",
-            pilot->GetName(), pilot->GetSystemID(), static_cast<unsigned int>(m_ballMode));
     }
 }
 
@@ -2403,6 +2425,24 @@ void DestinyManager::Orbit(SystemEntity *pSE, uint32 distance/*0*/) {
     if (m_followDistance == 0) {
         _log(DESTINY__ERROR, "%s(%u) - FollowDistance is 0.", mySE->GetName(), mySE->GetID());
         m_followDistance = (uint32)(m_targetDistance + Tr + m_radius); // fudge something here.  will have to fix later, but this is close enough
+    }
+
+    // Pre-check initial orbit distance so the first Orbit() tick hits the correct
+    // branch immediately, avoiding one tick of wrong-state computation and heading jerk.
+    {
+        GPoint Tp(pSE->GetPosition());
+        double centers = m_position.distance(Tp);
+        double edges = centers - m_radius - pSE->GetRadius();
+        if ((edges / 2) > m_followDistance) {
+            m_orbiting = Destiny::Ball::Orbit::TooFar;
+        } else if ((centers + m_targetDistance / 3) < m_followDistance) {
+            m_orbiting = Destiny::Ball::Orbit::TooClose;
+        } else {
+            m_orbiting = Destiny::Ball::Orbit::Orbiting;
+        }
+        if (is_log_enabled(DESTINY__ORBIT_TRACE))
+            _log(DESTINY__ORBIT_TRACE, "%s(%u) - Orbit initial state: %u (centers:%.2f, edges:%.2f, follow:%u)", \
+                mySE->GetName(), mySE->GetID(), m_orbiting, centers, edges, m_followDistance);
     }
 
     CmdOrbit du;

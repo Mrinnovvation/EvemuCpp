@@ -54,6 +54,9 @@ class AnomalyMgr
 
     void RegisterExitWH(CosmicSignature &sig);
 
+    // Called by DungeonMgr when an expired site is cleaned up; re-queues type for respawn
+    void QueueRespawn(int8 dungeonType)         { m_typeList.push_back(dungeonType); }
+
 protected:
     ManagerDB m_mdb;
     ServiceDB m_sdb;

@@ -158,6 +158,7 @@ void DroneSE::Online(ShipSE* pShipSE/*nullptr*/) {
         pShipSE = m_pShipSE;
 
     m_AI->AssignShip(pShipSE);
+    IdleOrbit(pShipSE);   // begin orbiting home ship immediately
 }
 
 void DroneSE::Offline() {
@@ -233,7 +234,8 @@ void DroneSE::StateChange() {
 }
 
 void DroneSE::TargetAdded(SystemEntity* who) {
-    /** @todo (Allan) will need code once drones are implemented */
+    m_targetID = who->GetID();
+    StateChange();
 }
 
 void DroneSE::TargetLost(SystemEntity *who) {
@@ -245,7 +247,7 @@ void DroneSE::TargetedAdd(SystemEntity *who) {
 }
 
 void DroneSE::TargetedLost(SystemEntity* who) {
-    /** @todo (Allan) will need code once drones are implemented */
+    // no action needed — drone continues its current activity
 }
 
 PyDict* DroneSE::MakeSlimItem() {

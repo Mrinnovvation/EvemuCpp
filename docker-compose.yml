@@ -15,9 +15,9 @@ services:
     links:
       - "db"
     environment:
-      - SEED_MARKET=${SEED_MARKET:-FALSE} # Set to TRUE to seed the market when the server starts for the first time
-      - SEED_SATURATION=${SEED_SATURATION:-80} # Set saturation level of seed
-      - SEED_REGIONS=${SEED_REGIONS:-Derelik,The Citadel,The Forge,Essence} # Define regions to be seeded
+      - SEED_MARKET=${SEED_MARKET:-TRUE} # Set to TRUE to seed the market when the server starts for the first time
+      - SEED_SATURATION=${SEED_SATURATION:-75} # Set saturation level of seed
+      - SEED_REGIONS=${SEED_REGIONS:-The Forge,The Citadel,Lonetrek,Black Rise,Domain,Devoid,The Bleak Lands,Aridia,Genesis,Kador,Khanid,Kor-Azor,Tash-Murkon,Derelik,Essence,Everyshore,Placid,Verge Vendor,Sinq Laison,Solitude,Heimatar,Metropolis,Molden Heath,Curse,Stain,Venal,Great Wildlands,Syndicate,Outer Ring} # All regions with NPC stations (empire + NPC null-sec)
       - RUN_WITH_GDB=${RUN_GDB:-FALSE} #Set to TRUE to run evemu with gdb automatically
     stdin_open: true # Enables stdin for the container. Attach to it with 'docker attach'
     tty: true
@@ -29,14 +29,20 @@ services:
     container_name: db
     volumes:
       - db:/var/lib/mysql
-    # If you want to connect to the Database pick your host port to map it to, (host-port:container-port) below. 
+    # If you want to connect to the Database pick your host port to map it to, (host-port:container-port) below.
     #ports:
-    #  - "3306:3306"  
+    #  - "3306:3306"
     environment:
       - MARIADB_RANDOM_ROOT_PASSWORD=true
       - MARIADB_USER=evemu
       - MARIADB_PASSWORD=evemu
       - MARIADB_DATABASE=evemu
+    command:
+      - --innodb-buffer-pool-size=1G        # Default is 128MB — far too small for bulk seeding
+      - --innodb-log-file-size=256M         # Larger redo log handles big transactions without stalling
+      - --innodb-flush-log-at-trx-commit=2  # Flush every second instead of every commit (safe for dev)
+      - --max-allowed-packet=64M            # Prevent packet size errors on large queries
+      - --bulk-insert-buffer-size=64M       # Per-thread buffer for INSERT...SELECT
 
 volumes:
   db:

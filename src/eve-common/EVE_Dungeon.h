@@ -195,6 +195,8 @@ namespace Dungeon {
     struct LiveDungeon {
         uint32 systemID;
         uint32 anomalyID;
+        int8   dungeonType;     // Dungeon::Type — used when re-queuing for respawn
+        int64  expiryTime;      // Win32 filetime after which the site is cleaned up
         std::map<uint16, LiveRoom> rooms;
     };
 }

@@ -958,7 +958,10 @@ void Client::MoveToPosition(const GPoint &pt) {
 void Client::DockToStation() {
     pShipSE->Dock();
     // ap cleared on client side when docking.
-    m_autoPilot = false;
+    //  routed through the setter so the clear is logged: a bare assignment here
+    //  is invisible, and tracking down who had switched autopilot off cost real
+    //  time on the gate-travel bugs.
+    SetAutoPilot(false);
     m_setStateSent = false;
     m_clientState = Player::State::Idle;
     _log(AUTOPILOT__TRACE, "DockToStation()() - m_clientState set to Idle");
@@ -1226,7 +1229,7 @@ void Client::Eject()
 
 void Client::ResetAfterPopped(GPoint& position)
 {
-    m_autoPilot = false;
+    SetAutoPilot(false);    // via the setter, so the clear is logged
     m_bubbleWait = false;    // allow client processing of subsquent destiny msgs
 
     if (m_pod.get() == nullptr)
@@ -1274,7 +1277,7 @@ void Client::ResetAfterPodded() {
      * reset skill effects if clone != current SP and skills lost
      */
 
-    m_autoPilot = false;
+    SetAutoPilot(false);    // via the setter, so the clear is logged
 
     CreateNewPod();
     SetShip(m_pod);

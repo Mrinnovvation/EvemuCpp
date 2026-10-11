@@ -1215,6 +1215,26 @@ void DestinyManager::Turn() {   // tracking within 900m for Frigates, 1k4m for B
     }
     deltaHeading *= turnPercent;
     m_shipHeading += deltaHeading;
+    /*  Renormalize.  deltaHeading is the CHORD from the current heading to the
+     *  target heading, so stepping a fraction of it lands inside the unit sphere:
+     *  a linear interpolation between two unit vectors is shorter than either one
+     *  unless the fraction is 0 or 1.  Normalizing turns it back into a direction,
+     *  which is what every reader of m_shipHeading expects -- UpdateVelocity() and
+     *  MoveObject() both use it as "m_shipHeading * speed".
+     *
+     *  Measured on one turn tic: heading (0.626,-0.299,-0.720), length 1.000, plus
+     *  deltaHeading (-0.25419,0.53033,0.36193) gave (0.372,0.232,-0.358) -- length
+     *  0.566.  From there the ship travels at 57% of the speed it reports, and the
+     *  angle tests can never pass again: dot() is capped at the heading's own
+     *  length, so acos() cannot read below 55 degrees while WARP_ALIGNMENT is 6 and
+     *  TURN_ALIGNMENT is 4.  The warp is accepted, the client says "warp drive
+     *  active", and InitWarp() is unreachable.  Successive tics compound it.
+     *
+     *  This makes the step a normalized lerp, the standard cheap stand-in for the
+     *  slerp that sits commented out above this method.
+     */
+    if (m_shipHeading.length() > 0.0001)
+        m_shipHeading.normalize();
     if (is_log_enabled(DESTINY__TURN_TRACE))
         _log(DESTINY__TURN_TRACE, "Destiny::Turn() - tf:%.3f, turnTic:%u, degRemain:%.3f  (deltaHeading:%.5f, %.5f, %.5f * turnPercent:%.2f) = shipHeading:%.3f, %.3f, %.3f", \
             m_timeFraction, m_turnTic, degrees, deltaHeading.x, deltaHeading.y, deltaHeading.z, turnPercent, m_shipHeading.x, m_shipHeading.y, m_shipHeading.z);

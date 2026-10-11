@@ -246,6 +246,26 @@ void DestinyManager::ProcessState() {
             if ((m_moveTime > 0.0) and (m_shipAgility > 0.0f))
                 timeFractionNow = (1 - exp(-((GetTimeMSeconds() - m_moveTime) * 0.001f) / m_shipAgility));
 
+            /*  One line per tic while the ball is in WARP mode but InitWarp() has
+             *  not fired yet, carrying every term of the three tests below.  A
+             *  ship stuck in "warp drive active" is otherwise silent: the gate
+             *  logs nothing, and the deadline branch's error only prints once it
+             *  has already given up, which is exactly the case that never happens.
+             */
+            _log(AUTOPILOT__TRACE, "Destiny::ProcessState() - %s(%u) awaiting warp."
+                    "  [deg:%.2f tfNow:%.4f elapsed:%.2f toEnterWarp:%.2f alignTime:%.2f deadline:%.2f"
+                    "  degPerTic:%.3f headLen:%.4f usf:%.3f asf:%.3f tf:%.4f turning:%s stop:%s mode:%u]", \
+                    mySE->GetName(), mySE->GetID(),
+                    degrees, timeFractionNow,
+                    (m_moveTime > 0.0 ? ((GetTimeMSeconds() - m_moveTime) * 0.001f)
+                                      : (float)(sEntityList.GetStamp() - m_stateStamp)),
+                    m_timeToEnterWarp, m_alignTime,
+                    std::max(m_timeToEnterWarp, m_alignTime) + 0.3f,
+                    m_degPerTic, m_shipHeading.length(),
+                    m_userSpeedFraction, m_activeSpeedFraction, m_timeFraction,
+                    (m_turning ? "true" : "false"), (m_stop ? "true" : "false"),
+                    static_cast<unsigned int>(m_ballMode));
+
             if ((degrees < WARP_ALIGNMENT) and (timeFractionNow > 0.749)) {
                 m_shipHeading = toVec;
                 InitWarp();

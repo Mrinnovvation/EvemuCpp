@@ -472,6 +472,28 @@ void DestinyManager::SetSpeedFraction(float fraction/*1.0*/, bool startMovement/
             du.y = m_shipHeading.y;
             du.z = m_shipHeading.z;
         updates.push_back(du.Encode());
+        /*  Send the throttle with the direction.  GotoDirection on its own says
+         *  only which way to fly, so the client kept whatever speed fraction it
+         *  was last given -- and the last thing it was given is the 1.0 that the
+         *  warp-align gate sets to spin the ship up.  So on every warp exit the
+         *  client was told "fly this way" and nothing else, and flew off at full
+         *  speed forever while the server ran its GOTO decel and parked.
+         *
+         *  Measured: ship stopped 205.6m from the centre of gate 50013890, well
+         *  inside jump range, and stayed there under Halt() for minutes, while the
+         *  pilot watched their own ship drift away from the gate at 305 m/s -- the
+         *  Catalyst's maximum.  Autopilot gave up because from the client's side
+         *  the gate was receding.
+         *
+         *  Two things hid this.  The branch returns before the CmdSetSpeedFraction
+         *  block below, and that block is guarded by "if (fraction)", so a
+         *  commanded stop -- fraction 0.0f, which is what WarpStop() passes -- is
+         *  falsy and would not have been sent from there either.
+         */
+        CmdSetSpeedFraction sf;
+            sf.entityID = mySE->GetID();
+            sf.fraction = fraction;
+        updates.push_back(sf.Encode());
         SendDestinyUpdate(updates);
         return;
     }

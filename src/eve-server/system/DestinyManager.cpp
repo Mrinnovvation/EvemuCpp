@@ -2071,6 +2071,34 @@ void DestinyManager::WarpUpdate(double currentShipSpeed) {
 }
 
 void DestinyManager::WarpStop(double currentShipSpeed) {
+    /*  Finish the warp where it was aimed.
+     *
+     *  WarpDecel() samples an exponential curve once a second and ends the warp
+     *  on the first tic whose speed is at or under m_speedToLeaveWarp.  Where
+     *  that tic lands is an artefact of the sampling and of this warp's
+     *  warpSpeed/decelDist ratio, so the ship is left anywhere from a metre to
+     *  several hundred metres short of m_targetPoint -- measured across one
+     *  session: 1.0m, 1.0m, 1.0m, 1.0m, and 424.0m.
+     *
+     *  The client does not sample.  It simulates its own warp smoothly to the
+     *  point it was handed in CmdWarpTo, which is m_targetPoint, so every metre
+     *  left here is a metre the two sides disagree by at the instant the client
+     *  decides whether it has arrived.  The correlation over that session is
+     *  exact: every jump the client asked for came off a 1.0m exit, and the
+     *  424.0m exit produced no request at all -- autopilot sat on the gate,
+     *  engaged, and would not jump.
+     *
+     *  m_targetPoint is the warp's defined endpoint and the ship is a fraction of
+     *  a second from it at warp speed, so closing the gap is finishing the warp,
+     *  not teleporting.
+     */
+    if ((m_warpState != nullptr) and (m_targetDistance > 0.0)) {
+        _log(DESTINY__WARP_TRACE, "Destiny::WarpStop(): %s(%u) - closing final %.2fm to the warp target.", \
+                mySE->GetName(), mySE->GetID(), m_targetDistance);
+        m_targetDistance = 0.0;
+        SetPosition(m_targetPoint, sConfig.debug.PositionHack);
+    }
+
     // 2026-09-14 21:21 -0400 | theocheesecake: Capture login return before SetLoginWarpComplete clears it.
     const bool completedLoginWarp = mySE->HasPilot() && mySE->GetPilot()->IsLoginWarping();
 

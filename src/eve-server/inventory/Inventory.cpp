@@ -598,8 +598,15 @@ void Inventory::StackAll(EVEItemFlags locFlag, uint32 ownerID/*0*/)
 {
     InventoryItemRef iRef(nullptr);
     std::vector<InventoryItemRef> delVec;
-    std::map<uint16, InventoryItemRef> types;
-    std::map<uint16, InventoryItemRef>::iterator tItr = types.end();
+    /*  Keyed on type *and* owner, not type alone.  A station's inventory holds
+     *  the hangar contents of every character and corp with anything in it, so
+     *  a type-only key lets two owners' stacks of the same item merge -- the
+     *  second owner's quantity is folded into the first owner's stack and
+     *  their item is Delete()d, from memory and from the database.  Reachable
+     *  whenever ownerID is 0, which is this method's default argument.
+     */
+    std::map<std::pair<uint16, uint32>, InventoryItemRef> types;
+    std::map<std::pair<uint16, uint32>, InventoryItemRef>::iterator tItr = types.end();
 
     auto range = m_contentsByFlag.equal_range(locFlag);
     for (auto itr = range.first; itr != range.second; ++itr) {
@@ -611,10 +618,10 @@ void Inventory::StackAll(EVEItemFlags locFlag, uint32 ownerID/*0*/)
         if (iRef->isSingleton())
             continue;
         if ((ownerID == 0) or (ownerID == iRef->ownerID())) {
-            tItr = types.find(iRef->typeID());
+            tItr = types.find({iRef->typeID(), iRef->ownerID()});
             if (tItr == types.end()) {
                 // insert type into map for later comparison (existing stack to merge into)
-                types.emplace(iRef->typeID(), iRef);
+                types.emplace(std::make_pair(iRef->typeID(), iRef->ownerID()), iRef);
             } else {
                 // found another stack of this type.
                 delVec.push_back(iRef);

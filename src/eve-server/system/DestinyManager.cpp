@@ -1204,15 +1204,37 @@ void DestinyManager::Follow() {
     m_targetDistance = (rawDist > 0.0 ? rawDist : 0.0);
 
     if (rawDist <= (double)m_followDistance) {
-        if (mySE->HasPilot())
-            if (mySE->GetPilot()->IsAutoPilot()) {
-                SetSpeedFraction(0.1);
-                _log(AUTOPILOT__TRACE, "DestinyManager::Follow() - Target within FollowDistance.  SpeedFraction = 0.1.");
-                return;
-            }
+        if (mySE->HasPilot() and mySE->GetPilot()->IsAutoPilot()) {
+            /*  Autopilot has arrived.  Halt the ship like any other follower, then
+             *  put the autopilot flag back, because Stop() clears it and the client
+             *  needs it set to go on and issue the jump.
+             *
+             *  This branch used to be SetSpeedFraction(0.1) followed by a return,
+             *  and that return skipped the MoveObject() at the end of this method.
+             *  Nothing then advanced the ship server-side, while the client -- told
+             *  "10% throttle" and never corrected -- kept dead-reckoning it forward
+             *  at the last velocity the server had broadcast.  Measured on a gate
+             *  approach: 30 consecutive tics logging the same position to the metre
+             *  with vel:231.17 every time, while the pilot watched the gate recede
+             *  to 24km and the client gave up and dropped autopilot by itself.  No
+             *  jump can be issued while the two sides disagree about where the ship
+             *  is, so this desync defeats everything downstream of it.
+             *
+             *  The bug is upstream's (846c40060, 2021) and latent there: it needs
+             *  rawDist <= m_followDistance to be reached and held, which only
+             *  happens once a warp exit leaves the ship sitting on the target.
+             */
+            Stop();
+            mySE->GetPilot()->SetAutoPilot(true);
+            _log(AUTOPILOT__TRACE, "DestinyManager::Follow() - Target within FollowDistance.  Stopping, autopilot held."
+                    "  [rawDist:%.1f followDist:%u centerDist:%.1f myRadius:%.1f targRadius:%.1f"
+                    "  pos:%.0f,%.0f,%.0f targ:%.0f,%.0f,%.0f vel:%.2f]", \
+                    rawDist, m_followDistance, heading.length(), m_radius, m_targetEntity.second->GetRadius(),
+                    m_position.x, m_position.y, m_position.z,
+                    target_point.x, target_point.y, target_point.z, m_velocity.length());
     // this will allow following entities to keep their follow state, yet stop movement if within their follow distance.
     //  by keeping their follow state, once the distance is greater than their follow distance, they will begin movement again.
-        if (m_tractored) {
+        } else if (m_tractored) {
             // specific to tractored entities.  sudden halt to mimic tractor stopping
             if (!m_tractorPause) {
                 std::vector<PyTuple*> updates;
@@ -1910,7 +1932,13 @@ void DestinyManager::WarpStop(double currentShipSpeed) {
                 mySE->GetName(), mySE->GetID(), m_position.x, m_position.y, m_position.z);
     }
     if (mySE->IsShipSE()) {
-        _log(AUTOPILOT__MESSAGE, "Destiny::WarpStop(): %s(%u) - Warp complete.", mySE->GetName(), mySE->GetID());
+        _log(AUTOPILOT__MESSAGE, "Destiny::WarpStop(): %s(%u) - Warp complete."
+                "  [exitSpeed:%.2f distLeft:%.1f posToTarget:%.1f stopDist:%i speedToLeaveWarp:%.2f agility:%.3f"
+                "  pos:%.0f,%.0f,%.0f targ:%.0f,%.0f,%.0f]", \
+                mySE->GetName(), mySE->GetID(), currentShipSpeed, m_targetDistance,
+                m_position.distance(m_targetPoint), m_stopDistance, m_speedToLeaveWarp, m_shipAgility,
+                m_position.x, m_position.y, m_position.z,
+                m_targetPoint.x, m_targetPoint.y, m_targetPoint.z);
         mySE->GetPilot()->SetLoginWarpComplete();
     }
     // SetSpeedFraction() checks for m_state = Warp and warpstate != null to set decel variables correctly with warp decel.

@@ -239,6 +239,20 @@ void ActiveModule::Update()
     }
 }
 
+ActiveModule::~ActiveModule()
+{
+    /*  never leave a dangling pointer behind in a target's module map.  registration happens on
+     *   every Activate(), but only Clear() ever deregistered - so UnfitModule() and ~ModuleManager()
+     *   could SafeDelete a cycling module while it was still listed on its target.  TargetManager::
+     *   Destroyed() walks that map on the killing blow and calls groupID()/Deactivate() through it,
+     *   which is a wild vtable call into freed memory at exactly the moment something dies. */
+    if (m_targetSE != nullptr)
+        if (m_targetSE->TargetMgr() != nullptr)
+            m_targetSE->TargetMgr()->RemoveTargetModule(this);
+
+    m_targetSE = nullptr;
+}
+
 void ActiveModule::Clear()
 {
     _log(MODULE__TRACE, "%s(%u) calling Clear()", m_modRef->name(), m_modRef->itemID());
@@ -336,6 +350,12 @@ void ActiveModule::Activate(uint16 effectID, uint32 targetID/*0*/, int16 repeat/
         Clear();
         throw CustomError ("Your %s doesn't seem to be loaded.", m_modRef->name());
     }
+    /*  drop any registration still held on a previously-targeted entity before m_targetSE is
+     *   re-pointed, otherwise this module stays listed in that entity's module map forever. */
+    if ((m_targetSE != nullptr) and (m_targetSE->GetID() != targetID))
+        if (m_targetSE->TargetMgr() != nullptr)
+            m_targetSE->TargetMgr()->RemoveTargetModule(this);
+
     if (IsValidTarget(targetID)) {
         // this is just a guess.  may have to use groupID test to verify if this doesnt work right.
         // also need to make check for modules acting on OUR ship....in which case this will be wrong.
@@ -346,6 +366,12 @@ void ActiveModule::Activate(uint16 effectID, uint32 targetID/*0*/, int16 repeat/
             Clear();
             throw UserError ("DeniedActivateTargetNotPresent");
         }
+    } else {
+        //  a targetless activation must not inherit target state from a previous cycle, or the
+        //   one-hit-kill check below (and ShowEffect) run against a stale m_targetSE.
+        m_needsTarget = false;
+        m_targetID = 0;
+        m_targetSE = nullptr;
     }
 
     if (m_targetSE != nullptr) {
@@ -455,8 +481,10 @@ void ActiveModule::Activate(uint16 effectID, uint32 targetID/*0*/, int16 repeat/
         m_Stop = true;
 
     // check for one-hit kills and stop module after cycle completes
+    //  the initial cycle above runs DoCycle() inline, so a high-alpha weapon (a titan's guns or a
+    //  doomsday) can destroy the target before we get here, which clears/invalidates m_targetSE.
     if (m_needsTarget)
-        if (m_targetSE->IsDead())
+        if ((m_targetSE == nullptr) or m_targetSE->IsDead())
             m_Stop = true;
 }
 
@@ -520,27 +548,19 @@ uint32 ActiveModule::DoCycle() {
     if (m_modRef->HasAttribute(AttrConsumptionType)) {
         uint16 typeID(m_modRef->GetAttribute(AttrConsumptionType).get_uint32()); // cast uint32 to uint16
         uint32 qtyNeed(m_modRef->GetAttribute(AttrConsumptionQuantity).get_uint32());
-        // verify character has require amount of consumption type available
-        if (!m_shipRef->GetMyInventory()->ContainsTypeQtyByFlag(typeID, EVEItemFlags::flagCargoHold, qtyNeed)) {
-            m_shipRef->GetPilot()->SendNotifyMsg("This module requires you to have %u units of %s in your cargo hold.", \
-                    qtyNeed, sItemFactory.GetType(typeID)->name().c_str());
+        // verify pilot has the required amount available, in the fuel bay or the cargo hold
+        EVEItemFlags holdFlag(EVEItemFlags::flagCargoHold);
+        if (!FindConsumable(typeID, qtyNeed, holdFlag)) {
+            const ItemType* cType = sItemFactory.GetType(typeID);
+            m_shipRef->GetPilot()->SendNotifyMsg("This module requires you to have %u units of %s available.",
+                    qtyNeed, (cType != nullptr ? cType->name().c_str() : "its consumable"));
             AbortCycle();  // CHECK THIS  for initial activate
             return 0;
-        } else {
-            /** @todo this may need more work later in the case of multiple stacks */
-            InventoryItemRef iRef(m_shipRef->GetMyInventory()->GetByTypeFlag(typeID, EVEItemFlags::flagCargoHold));
-            if (iRef.get() != nullptr) {
-                if (iRef->quantity() > qtyNeed) {
-                    //If we have all the quantity we need in the current stack, decrement the amount we need and break
-                    iRef->AlterQuantity(-qtyNeed, true);
-                } else {
-                    // Delete item
-                    iRef->SetQuantity(0, true, true);
-                }
-            } else {
-                AbortCycle();  // CHECK THIS  for initial activate
-                return 0;
-            }
+        }
+
+        if (!ConsumeFromHold(typeID, qtyNeed, holdFlag)) {
+            AbortCycle();  // CHECK THIS  for initial activate
+            return 0;
         }
     }
 
@@ -984,7 +1004,70 @@ void ActiveModule::UnloadCharge()
         }
 }
 
+/*  capital modules - doomsday, jump portal generator, clone vat bay, siege/triage cores, cynos -
+ *   are fuelled out of the ship's fuel bay, which is where the client tells the pilot to put the
+ *   isotopes/ozone/strontium.  only the cargo hold was ever searched, so every one of them reported
+ *   "you need N units in your cargo hold" and refused to activate on a correctly fuelled hull.
+ *   fuel bay first (when the hull has one), then cargo. */
+bool ActiveModule::FindConsumable(uint16 typeID, uint32 qtyNeed, EVEItemFlags& holdFlag)
+{
+    if (m_shipRef->HasAttribute(AttrFuelBayCapacity))
+        if (m_shipRef->GetMyInventory()->ContainsTypeQtyByFlag(typeID, EVEItemFlags::flagFuelBay, qtyNeed)) {
+            holdFlag = EVEItemFlags::flagFuelBay;
+            return true;
+        }
+
+    if (m_shipRef->GetMyInventory()->ContainsTypeQtyByFlag(typeID, EVEItemFlags::flagCargoHold, qtyNeed)) {
+        holdFlag = EVEItemFlags::flagCargoHold;
+        return true;
+    }
+
+    return false;
+}
+
+/*  consume across as many stacks as it takes.  the old code only ever touched the single stack
+ *   GetByTypeFlag() happened to return, so anything with a large per-cycle draw (a doomsday burns
+ *   50,000 isotopes, a jump bridge 500 ozone) silently under-charged the pilot whenever that fuel
+ *   was split over more than one stack. */
+bool ActiveModule::ConsumeFromHold(uint16 typeID, uint32 qtyNeed, EVEItemFlags holdFlag)
+{
+    int32 qtyLeft = (int32)qtyNeed;
+    std::vector<InventoryItemRef> hold;
+    m_shipRef->GetMyInventory()->GetItemsByFlag(holdFlag, hold);
+    for (auto cur : hold) {
+        if (qtyLeft < 1)
+            break;
+        if (cur->typeID() != typeID)
+            continue;
+        if (cur->quantity() > qtyLeft) {
+            // this stack covers the remainder
+            cur->AlterQuantity(-qtyLeft, true);
+            qtyLeft = 0;
+        } else {
+            // consume the whole stack and keep looking for the rest
+            qtyLeft -= cur->quantity();
+            cur->SetQuantity(0, true, true);
+        }
+    }
+
+    if (qtyLeft > 0) {
+        _log(MODULE__WARNING, "AM::ConsumeFromHold() - %s(%u) came up %i units of %u short.",
+                m_modRef->name(), m_modRef->itemID(), qtyLeft, typeID);
+        return false;
+    }
+
+    return true;
+}
+
 void ActiveModule::ConsumeCharge() {
+    /*  the charge-depletion path nulls m_chargeRef mid-cycle: AlterQuantity(-1) on the last unit
+     *   deletes the item, which unwinds through ShipItem::RemoveItem -> MM::UnloadModule ->
+     *   UnloadCharge().  Activate()'s charge test only runs once, at activation. */
+    if (m_chargeRef.get() == nullptr) {
+        AbortCycle();
+        return;
+    }
+
     if (m_linkMaster) {
         // remove charges from linked modules as applicable
         std::vector<GenericModule*> modules;
@@ -1058,10 +1141,12 @@ bool ActiveModule::CanActivate() {
     if (m_modRef->HasAttribute(AttrConsumptionType)) {
         uint16 typeID(m_modRef->GetAttribute(AttrConsumptionType).get_uint32()); // cast uint32 to uint16
         uint32 qtyNeed(m_modRef->GetAttribute(AttrConsumptionQuantity).get_uint32());
-        // verify character has require amount of consumption type available
-        if (!m_shipRef->GetMyInventory()->ContainsTypeQtyByFlag(typeID, EVEItemFlags::flagCargoHold, qtyNeed)) {
-            m_shipRef->GetPilot()->SendNotifyMsg("This module requires you to have %u units of %s in your inventory.", \
-                    qtyNeed, sItemFactory.GetType(typeID)->name().c_str());
+        // verify pilot has the required amount available, in the fuel bay or the cargo hold
+        EVEItemFlags holdFlag(EVEItemFlags::flagCargoHold);
+        if (!FindConsumable(typeID, qtyNeed, holdFlag)) {
+            const ItemType* cType = sItemFactory.GetType(typeID);
+            m_shipRef->GetPilot()->SendNotifyMsg("This module requires you to have %u units of %s available.",
+                    qtyNeed, (cType != nullptr ? cType->name().c_str() : "its consumable"));
             return false;
         }
     }
@@ -1088,6 +1173,11 @@ bool ActiveModule::CanActivate() {
     if (m_targetSE != nullptr) {
         // weapons use ships AttrMaxTargetRange which is checked in TargetMgr
         if (m_turret or m_launcher)
+            return true;
+        // doomsdays have no rangeAttributeID in dgmEffects (4489-4492), so they are bound by
+        //  the ship's targeting range the same way turrets are.  without this they hit the
+        //  default case below, read a nonexistent AttrMaxRange as 0, and can never activate.
+        if (groupID() == EVEDB::invGroups::Super_Weapon)
             return true;
 
         // test for specific targets and distance here
@@ -1400,6 +1490,12 @@ void ActiveModule::LaunchMissile()
     Client* pClient = m_shipRef->GetPilot();
     if (pClient == nullptr)
         return;
+
+    //  the last charge is deleted mid-cycle, which nulls m_chargeRef (see ConsumeCharge)
+    if (m_chargeRef.get() == nullptr) {
+        AbortCycle();
+        return;
+    }
     ItemData idata(m_chargeRef->typeID(), pClient->GetCharacterID(), pClient->GetLocationID(), flagMissile, m_chargeRef->name(), m_shipRef->position() );
     InventoryItemRef missileRef = sItemFactory.SpawnItem(idata);
     if (missileRef.get() == nullptr) {
@@ -1442,6 +1538,12 @@ void ActiveModule::LaunchProbe()
     Client* pClient = m_shipRef->GetPilot();
     if (pClient == nullptr)
         return;
+
+    //  the last charge is deleted mid-cycle, which nulls m_chargeRef (see ConsumeCharge)
+    if (m_chargeRef.get() == nullptr) {
+        AbortCycle();
+        return;
+    }
     if (pClient->scan() == nullptr)
         pClient->SetScan(new Scan(pClient));
 

@@ -78,6 +78,8 @@ public:
         bool saveOnMove;
         bool saveOnUpdate;
         bool highSecCyno;
+        bool highSecDoomsday;
+        bool doomsdayCapitalOnly;
         bool shootRoids;
         bool shootWrecks;
         uint8 mailDelay;
@@ -249,6 +251,19 @@ public:
         uint16 imageServerPort;
         /// the imageServer for char images. should be the evemu server external ip/host
         std::string imageServer;
+        /// Port at which the apiServer should listen.
+        uint16 apiServerPort;
+        /// the apiServer for the EVE XML API. should be the evemu server external ip/host
+        std::string apiServer;
+        /// Whether the apiServer should be started at all.
+        bool apiServerEnabled;
+        /// Port at which the ESP (EVE Server Pages) server should listen.
+        /// The client hardcodes 50001, so changing this breaks the in-game GM menu links.
+        uint16 espServerPort;
+        /// the espServer host. should be the evemu server external ip/host
+        std::string espServer;
+        /// Whether the ESP server should be started at all.
+        bool espServerEnabled;
     } net;
 
     // From <thread>

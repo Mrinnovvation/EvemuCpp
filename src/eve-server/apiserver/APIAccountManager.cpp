@@ -29,19 +29,19 @@
 
 std::string APIAccountManager::m_hexCharMap("0123456789ABCDEF");
 
-APIAccountManager::APIAccountManager(const PyServiceMgr &services)
-: APIServiceManager(services)
+APIAccountManager::APIAccountManager()
+: APIServiceManager()
 {
 }
 
-std::tr1::shared_ptr<std::string> APIAccountManager::ProcessCall(const APICommandCall * pAPICommandCall)
+std::shared_ptr<std::string> APIAccountManager::ProcessCall(const APICommandCall * pAPICommandCall)
 {
     sLog.Debug("APIAccountManager::ProcessCall()", "EVEmu API - Account Service Manager");
 
     if ( pAPICommandCall->find( "servicehandler" ) == pAPICommandCall->end() )
     {
         sLog.Error( "APIAccountManager::ProcessCall()", "Cannot find 'servicehandler' specifier in pAPICommandCall packet" );
-        return std::tr1::shared_ptr<std::string>(new std::string(""));
+        return std::shared_ptr<std::string>(new std::string(""));
     }
 
     if ( pAPICommandCall->find( "servicehandler" )->second == "APIKeyRequest.xml.aspx" )
@@ -56,13 +56,13 @@ std::tr1::shared_ptr<std::string> APIAccountManager::ProcessCall(const APIComman
     {
         sLog.Error("APIAccountManager::ProcessCall()", "EVEmu API - Account Service Manager - ERROR: Cannot resolve '%s' as a valid service query for Admin Service Manager",
             pAPICommandCall->find("servicehandler")->second.c_str() );
-        return std::tr1::shared_ptr<std::string>(new std::string(""));
+        return std::shared_ptr<std::string>(new std::string(""));
     }
 
     return BuildErrorXMLResponse( "9999", "EVEmu API Server: Account Manager - Unknown call." );
 }
 
-std::tr1::shared_ptr<std::string> APIAccountManager::_APIKeyRequest(const APICommandCall * pAPICommandCall)
+std::shared_ptr<std::string> APIAccountManager::_APIKeyRequest(const APICommandCall * pAPICommandCall)
 {
     bool status = false;
     uint32 userID, apiRole;
@@ -200,34 +200,21 @@ std::tr1::shared_ptr<std::string> APIAccountManager::_APIKeyRequest(const APICom
     return _GetXMLDocumentString();
 }
 
-std::tr1::shared_ptr<std::string> APIAccountManager::_Characters(const APICommandCall * pAPICommandCall)
+std::shared_ptr<std::string> APIAccountManager::_Characters(const APICommandCall * pAPICommandCall)
 {
-
-    sLog.Error( "APIAccountManager::_Characters()", "TODO: Insert code to validate userID and apiKey" );
 
     sLog.Debug("APIAccountManager::_Characters()", "EVEmu API - Account Service Manager - CALL: Characters.xml.aspx");
 
-    if ( pAPICommandCall->find( "userid" ) == pAPICommandCall->end() )
-    {
-        sLog.Error( "APIAccountManager::_Characters()", "ERROR: No 'userID' parameter found in call argument list - exiting with error" );
-        return BuildErrorXMLResponse( "106", "Must provide userID parameter for authentication." );
-    }
+    uint32 accountID = 0;
+    std::shared_ptr<std::string> authError = _ValidateAPIQuery( pAPICommandCall, EVEAPI::KeyType::Limited, &accountID );
+    if ( authError )
+        return authError;
 
     uint32 status = 0;
-    uint32 accountID = 0;
     std::vector<std::string> charIDList;
     std::vector<std::string> charNameList;
     std::vector<std::string> charCorpIDList;
     std::vector<std::string> charCorpNameList;
-
-    std::string userID = pAPICommandCall->find( "userid" )->second;
-
-    status = m_db.GetAccountIdFromUserID( userID, &accountID );
-    if ( !status )
-    {
-        sLog.Error( "APIAccountManager::_Characters()", "ERROR: userID='%s' cannot be found in 'accountApi' table.", userID.c_str() );
-        return BuildErrorXMLResponse( "203", "Authentication failure." );
-    }
 
     if ( !( m_accountDB.GetCharactersList(accountID, charIDList, charNameList, charCorpIDList, charCorpNameList) ) )
     {
@@ -265,24 +252,14 @@ std::tr1::shared_ptr<std::string> APIAccountManager::_Characters(const APIComman
     return _GetXMLDocumentString();
 }
 
-std::tr1::shared_ptr<std::string> APIAccountManager::_AccountStatus(const APICommandCall * pAPICommandCall)
+std::shared_ptr<std::string> APIAccountManager::_AccountStatus(const APICommandCall * pAPICommandCall)
 {
-    sLog.Error( "APIAccountManager::_AccountStatus()", "TODO: Insert code to validate userID and apiKey" );
-
-    if ( pAPICommandCall->find( "userid" ) == pAPICommandCall->end() )
-    {
-        sLog.Error( "APIAccountManager::_AccountStatus()", "ERROR: No 'userID' parameter found in call argument list - exiting with error" );
-        return BuildErrorXMLResponse( "106", "Must provide userID parameter for authentication." );
-    }
-
     uint32 accountID = 0;
-    std::vector<std::string> accountInfoList;
+    std::shared_ptr<std::string> authError = _ValidateAPIQuery( pAPICommandCall, EVEAPI::KeyType::Limited, &accountID );
+    if ( authError )
+        return authError;
 
-    if ( !(m_db.GetAccountIdFromUserID( pAPICommandCall->find( "userid" )->second, &accountID )) )
-    {
-        sLog.Error( "APIAccountManager::_AccountStatus()", "ERROR: Could not find 'accountID' in 'accountApi' table - exiting with error" );
-        return BuildErrorXMLResponse( "106", "Must provide userID parameter for authentication." );
-    }
+    std::vector<std::string> accountInfoList;
 
     if ( !(m_accountDB.GetAccountInfo( accountID, accountInfoList )) )
     {

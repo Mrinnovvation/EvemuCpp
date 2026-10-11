@@ -80,6 +80,8 @@ EVEServerConfig::EVEServerConfig()
     world.apWarptoDistance = 15000;
     world.shipBoardDistance = 300;
     world.highSecCyno = false;
+    world.highSecDoomsday = false;
+    world.doomsdayCapitalOnly = false;
 
     // rates
     rates.npcBountyMultiply = 1.0;
@@ -262,6 +264,12 @@ EVEServerConfig::EVEServerConfig()
     net.port = 26000;
     net.imageServer = "localhost";
     net.imageServerPort = 26001;
+    net.apiServer = "localhost";
+    net.apiServerPort = 26002;
+    net.apiServerEnabled = false;
+    net.espServer = "localhost";
+    net.espServerPort = 50001;   // hardcoded client-side; see loginII.GetServerInfo()
+    net.espServerEnabled = false;
 
     // threads  -not implemented
     threads.ConsoleThreads = 1;//P
@@ -379,6 +387,8 @@ bool EVEServerConfig::ProcessWorld( const TiXmlElement* ele )
     AddValueParser( "saveOnMove",        world.saveOnMove );
     AddValueParser( "saveOnUpdate",      world.saveOnUpdate );
     AddValueParser( "highSecCyno",       world.highSecCyno );
+    AddValueParser( "highSecDoomsday",   world.highSecDoomsday );
+    AddValueParser( "doomsdayCapitalOnly", world.doomsdayCapitalOnly );
     AddValueParser( "mailDelay",         world.mailDelay );
     AddValueParser( "shootRoids",        world.shootRoids );
     AddValueParser( "shootWrecks",       world.shootWrecks );
@@ -397,6 +407,8 @@ bool EVEServerConfig::ProcessWorld( const TiXmlElement* ele )
     RemoveParser( "saveOnMove" );
     RemoveParser( "saveOnUpdate" );
     RemoveParser( "highSecCyno" );
+    RemoveParser( "highSecDoomsday" );
+    RemoveParser( "doomsdayCapitalOnly" );
     RemoveParser( "mailDelay" );
     RemoveParser( "shootRoids" );
     RemoveParser( "shootWrecks" );
@@ -660,12 +672,24 @@ bool EVEServerConfig::ProcessNet( const TiXmlElement* ele )
     AddValueParser( "port",             net.port );
     AddValueParser( "imageServerPort",  net.imageServerPort);
     AddValueParser( "imageServer",      net.imageServer);
+    AddValueParser( "apiServerPort",    net.apiServerPort);
+    AddValueParser( "apiServer",        net.apiServer);
+    AddValueParser( "apiServerEnabled", net.apiServerEnabled);
+    AddValueParser( "espServerPort",    net.espServerPort);
+    AddValueParser( "espServer",        net.espServer);
+    AddValueParser( "espServerEnabled", net.espServerEnabled);
 
     const bool result = ParseElementChildren( ele );
 
     RemoveParser( "port" );
     RemoveParser( "imageServerPort" );
     RemoveParser( "imageServer" );
+    RemoveParser( "apiServerPort" );
+    RemoveParser( "apiServer" );
+    RemoveParser( "apiServerEnabled" );
+    RemoveParser( "espServerPort" );
+    RemoveParser( "espServer" );
+    RemoveParser( "espServerEnabled" );
 
     return result;
 }

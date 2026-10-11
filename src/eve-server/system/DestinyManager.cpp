@@ -676,7 +676,11 @@ void DestinyManager::CheckBump()
         if (cur == pClient)
             continue;
         distance = pos.distance(cur->GetShipSE()->GetPosition());
-        distance -= (mySE->GetRadius() - cur->GetShipSE()->GetRadius());
+        //  surface separation is the centre distance less the SUM of both radii.  subtracting the
+        //   difference made this wildly asymmetric for mismatched hulls - a titan (radius ~7500)
+        //   next to a frigate (27) read as ~7.5km INSIDE bump range every tick, while the frigate
+        //   read ~7.5km outside it and never bumped at all.
+        distance -= (mySE->GetRadius() + cur->GetShipSE()->GetRadius());
         if (distance < BUMP_DISTANCE) {
             Bump(cur->GetShipSE());
             m_bump = true;
@@ -1170,17 +1174,12 @@ void DestinyManager::Follow() {
     //  Follow is also used by client as AlignTo.
     const GPoint& target_point = m_targetEntity.second->GetPosition();
     GVector heading(m_position, target_point);
-    m_targetDistance = (uint32)(heading.length() - m_radius);
-    // 2026-09-14 21:06 -0400 | theocheesecake: Sample approach progress every five ticks, including the AP early-return branch.
-    if (mySE->HasPilot() && (sEntityList.GetStamp() % 5 == 0)) {
-        sLog.Warning("NavDebug", "%s: FOLLOW target=%u center=%.2f surface=%.2f followRange=%u AP=%d apHold=%d speed=%.4f USF=%.4f ASF=%.4f PSF=%.4f accel=%d decel=%d",
-            mySE->GetName(), m_targetEntity.first, heading.length(),
-            heading.length() - mySE->GetRadius() - m_targetEntity.second->GetRadius(),
-            m_followDistance, static_cast<int>(mySE->GetPilot()->IsAutoPilot()),
-            static_cast<int>(mySE->GetPilot()->IsAutoPilot() && m_targetDistance < m_followDistance),
-            m_velocity.length(), m_userSpeedFraction, m_activeSpeedFraction, m_prevSpeedFraction,
-            static_cast<int>(m_accel), static_cast<int>(m_decel));
-    }
+    //  follow/approach distances are surface-to-surface, so the TARGET's radius counts too.
+    //   ignoring it meant approaching anything large stopped one target-radius too late (a titan
+    //   is 6800-9000m), driving you into the hull.  m_targetDistance is a double - the old uint32
+    //   cast also wrapped any negative (already inside the radius) into a huge positive.
+    double surfaceDist = heading.length() - m_radius - m_targetEntity.second->GetRadius();
+    m_targetDistance = (surfaceDist > 0.0 ? surfaceDist : 0.0);
 
     if (m_targetDistance < m_followDistance) {
         if (mySE->HasPilot())

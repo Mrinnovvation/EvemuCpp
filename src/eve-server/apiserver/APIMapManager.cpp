@@ -27,14 +27,22 @@
 
 #include "apiserver/APIMapManager.h"
 
-APIMapManager::APIMapManager(const PyServiceMgr &services)
-: APIServiceManager(services)
+APIMapManager::APIMapManager()
+: APIServiceManager()
 {
 }
 
-std::tr1::shared_ptr<std::string> APIMapManager::ProcessCall(const APICommandCall * pAPICommandCall)
+std::shared_ptr<std::string> APIMapManager::ProcessCall(const APICommandCall * pAPICommandCall)
 {
     sLog.Debug("APIMapManager::ProcessCall()", "EVEmu API - Map Service Manager");
 
-    return std::tr1::shared_ptr<std::string>(new std::string(""));
+    /* Not implemented yet. Return a well-formed API error rather than an empty
+     * body so callers get a parseable document instead of a truncated response.
+     */
+    const char * handler = "(none)";
+    if ( pAPICommandCall->find( "servicehandler" ) != pAPICommandCall->end() )
+        handler = pAPICommandCall->find( "servicehandler" )->second.c_str();
+
+    sLog.Warning("APIMapManager::ProcessCall()", "EVEmu API - Map Service Manager is not implemented; rejecting '%s'", handler);
+    return BuildErrorXMLResponse( "9999", "EVEmu API Server: Map Manager is not implemented." );
 }

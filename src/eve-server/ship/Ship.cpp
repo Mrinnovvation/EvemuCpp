@@ -2262,53 +2262,41 @@ PyList* ShipItem::ShipGetModuleList() {
     return result;
 }
 
-bool ShipItem::ValidateBoardShip(CharacterRef character) {
-    bool result = false;
-    EvilNumber skillTypeID(EvilZero);
+/* checks the pilot has every skill this hull requires, at the required level.
+ *  a titan needs all three of Capital Ships V, its racial Titan skill, and Spaceship Command,
+ *  so the old nested form - which let a failed RequiredSkill1 fall through to the deeper checks
+ *  and still return true - would happily board a pilot who had no business in the hull.
+ *  pass missingSkillID/missingLevel to find out which requirement actually failed.
+ */
+bool ShipItem::ValidateBoardShip(CharacterRef character, uint16* missingSkillID/*nullptr*/, uint8* missingLevel/*nullptr*/) {
+    static const uint16 skillAttr[6]  = {AttrRequiredSkill1,      AttrRequiredSkill2,      AttrRequiredSkill3,
+                                         AttrRequiredSkill4,      AttrRequiredSkill5,      AttrRequiredSkill6};
+    static const uint16 levelAttr[6]  = {AttrRequiredSkill1Level, AttrRequiredSkill2Level, AttrRequiredSkill3Level,
+                                         AttrRequiredSkill4Level, AttrRequiredSkill5Level, AttrRequiredSkill6Level};
 
-    if (HasAttribute(AttrRequiredSkill1, skillTypeID)) {
-        if (character->HasSkillTrainedToLevel( skillTypeID.get_uint32(), GetAttribute(AttrRequiredSkill1Level).get_uint32()))
-            result = true;
-        if (HasAttribute(AttrRequiredSkill2, skillTypeID)) {
-            if (character->HasSkillTrainedToLevel( skillTypeID.get_uint32(), GetAttribute(AttrRequiredSkill2Level).get_uint32())) {
-                result = true;
-            } else {
-                return false;
-            }
-            if (HasAttribute(AttrRequiredSkill3, skillTypeID)) {
-                if (character->HasSkillTrainedToLevel( skillTypeID.get_uint32(), GetAttribute(AttrRequiredSkill3Level).get_uint32())) {
-                    result = true;
-                } else {
-                    return false;
-                }
-                if (HasAttribute(AttrRequiredSkill4, skillTypeID)) {
-                    if (character->HasSkillTrainedToLevel( skillTypeID.get_uint32(), GetAttribute(AttrRequiredSkill4Level).get_uint32())) {
-                        result = true;
-                    } else {
-                        return false;
-                    }
-                    if (HasAttribute(AttrRequiredSkill5, skillTypeID)) {
-                        if (character->HasSkillTrainedToLevel( skillTypeID.get_uint32(), GetAttribute(AttrRequiredSkill5Level).get_uint32())) {
-                            result = true;
-                        } else {
-                            return false;
-                        }
-                        if (HasAttribute(AttrRequiredSkill6, skillTypeID)) {
-                            if (character->HasSkillTrainedToLevel( skillTypeID.get_uint32(), GetAttribute(AttrRequiredSkill6Level).get_uint32())) {
-                                result = true;
-                            } else {
-                                return false;
-                            }
-                        }
-                    }
-                }
-            }
+    EvilNumber skillTypeID(EvilZero);
+    for (uint8 i = 0; i < 6; ++i) {
+        if (!HasAttribute(skillAttr[i], skillTypeID))
+            continue;
+
+        uint16 typeID = skillTypeID.get_uint32();
+        if (typeID == 0)
+            continue;
+
+        uint8 level = (HasAttribute(levelAttr[i]) ? GetAttribute(levelAttr[i]).get_uint32() : 1);
+
+        if (!character->HasSkillTrainedToLevel(typeID, level)) {
+            if (missingSkillID != nullptr)
+                *missingSkillID = typeID;
+            if (missingLevel != nullptr)
+                *missingLevel = level;
+            _log(SHIP__MESSAGE, "ShipItem::ValidateBoardShip - %s cannot board %s(%u): needs %u to level %u.",                     character->name(), name(), itemID(), typeID, level);
+            return false;
         }
-    } else {
-        result = true;
     }
 
-    return result;
+    // no requirements, or the pilot meets all of them
+    return true;
 }
 
 bool ShipItem::ValidateItemSpecifics(InventoryItemRef iRef)
@@ -2788,9 +2776,9 @@ void ShipSE::ApplyBoost(BoostData& bData)
     m_oldScanRes        = m_shipRef->GetAttribute(AttrScanResolution).get_uint32();
     m_oldTargetRange    = m_shipRef->GetAttribute(AttrMaxTargetRange).get_uint32();
 
-    uint16 armorHP      = m_oldArmor       * (1.0f + (0.02f * m_boost.armored)); // 2% increase/level
-    uint16 shieldHP     = m_oldShield      * (1.0f + (0.02f * m_boost.siege));// 2% increase/level
-    uint16 scanRes      = m_oldScanRes     * (1.0f + (0.02f * m_boost.leader));// 2% increase/level
+    uint32 armorHP      = m_oldArmor       * (1.0f + (0.02f * m_boost.armored)); // 2% increase/level
+    uint32 shieldHP     = m_oldShield      * (1.0f + (0.02f * m_boost.siege));// 2% increase/level
+    uint32 scanRes      = m_oldScanRes     * (1.0f + (0.02f * m_boost.leader));// 2% increase/level
     uint32 targRange    = m_oldTargetRange * (1.0f + (0.02f * m_boost.info));// 2% increase/level
     float inertia       = m_oldInertia     * (1.0f - (0.02f * m_boost.skirmish));// 2% decrease/level
 

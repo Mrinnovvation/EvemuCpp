@@ -43,7 +43,7 @@ bool APICacheManager::CacheRetrieve(const std::string * apiDescriptor, std::stri
     return false;
 }
 
-bool APICacheManager::CacheDeposit(const std::string * apiDescriptor, const std::string * xmlDoc, uint64 win32timeExpiration)
+bool APICacheManager::CacheDeposit(const std::string * apiDescriptor, const std::string * xmlDoc, int64 win32timeExpiration)
 {
     // TODO:
     // 1) run apiDescriptor string through SHA1 hash, then create a file

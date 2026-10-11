@@ -1782,53 +1782,69 @@ uint32 Client::GetLoyaltyPoints(uint32 corpID) {
     return 0;
 }
 
-void Client::RemoveMissionItem(uint16 typeID, uint32 qty)
+/*  Collect this character's own stacks of 'typeID' that count towards a mission objective: the
+ *  personal hangar at the station we are docked in, plus the active ship's cargo hold.
+ *
+ *  A station's Inventory holds the hangar contents of *every* character docked there (that is why
+ *  Inventory::GetInvForOwner() exists), and Inventory::GetByTypeFlag() matches on typeID and flag
+ *  alone - so the hangar side has to be filtered by ownerID, otherwise a mission check could see,
+ *  and RemoveMissionItem() could destroy, another player's items.  GetByTypeFlag() also stops at
+ *  the first match, which misses the rest of a type split across several stacks.
+ */
+void Client::GetMissionItems(uint16 typeID, std::vector<InventoryItemRef>& into)
 {
-    uint16 count = qty;
-    InventoryItemRef iRef(nullptr);
     if (sDataMgr.IsStation(m_locationID)) {
-        iRef = sItemFactory.GetStationRef(m_locationID)->GetMyInventory()->GetByTypeFlag(typeID, flagHangar);
-        if (iRef.get() != nullptr) {
-            if (count < iRef->quantity()) {
-                iRef->AlterQuantity(count, true);
-                count = 0;
-            } else {
-                count -= iRef->quantity();
-                iRef->Delete();
-            }
+        StationItemRef sRef = sItemFactory.GetStationRef(m_locationID);
+        if (sRef.get() != nullptr) {
+            std::vector<InventoryItemRef> hangar;
+            sRef->GetMyInventory()->GetInvForOwner(GetCharacterID(), hangar);
+            for (auto cur : hangar)
+                if ((cur->typeID() == typeID) and (cur->flag() == flagHangar))
+                    into.push_back(cur);
         }
     }
 
-    if (count) {
-        iRef = GetShip()->GetMyInventory()->GetByTypeFlag(typeID, flagCargoHold);
-        if (iRef.get() != nullptr){
-            if (count < iRef->quantity()) {
-                iRef->AlterQuantity(count, true);
-                count = 0;
-            } else {
-                count -= iRef->quantity();
-                iRef->Delete();
-            }
-        }
+    //  reachable from the journal and agent windows before the active ship is loaded, so this can
+    //  legitimately be null.
+    if (GetShip().get() != nullptr) {
+        std::vector<InventoryItemRef> cargo;
+        GetShip()->GetMyInventory()->GetItemsByFlag(flagCargoHold, cargo);
+        for (auto cur : cargo)
+            if (cur->typeID() == typeID)
+                into.push_back(cur);
     }
-    if (count)
-        ;  // make error here for not enough?
 }
 
-bool Client::ContainsTypeQty(uint16 typeID, uint32 qty) const
+void Client::RemoveMissionItem(uint16 typeID, uint32 qty)
 {
-    uint16 count = 0;
-    InventoryItemRef iRef(nullptr);
-    // this is for missions....we will have to determine if we have the TOTAL qty desired, in both cargo and hangar
-    if (sDataMgr.IsStation(m_locationID)) {
-        iRef = sItemFactory.GetStationRef(m_locationID)->GetMyInventory()->GetByTypeFlag(typeID, flagHangar);
-        if (iRef.get() != nullptr)
-            count = iRef->quantity();
+    uint32 count = qty;     // this is a stack size, not a typeID - do not truncate it to uint16
+    std::vector<InventoryItemRef> items;
+    GetMissionItems(typeID, items);
+
+    for (auto cur : items) {
+        if (count < 1)
+            break;
+        if (count < (uint32)cur->quantity()) {
+            cur->AlterQuantity(-(int32)count, true);    // AlterQuantity() is signed; a positive delta *adds*
+            count = 0;
+        } else {
+            count -= cur->quantity();
+            cur->Delete();
+        }
     }
 
-    iRef = GetShip()->GetMyInventory()->GetByTypeFlag(typeID, flagCargoHold);
-    if (iRef.get() != nullptr)
-        count += iRef->quantity();
+    if (count)
+        _log(AGENT__WARNING, "Client::RemoveMissionItem() - %u of type %u still owed by %s", count, typeID, GetName());
+}
+
+bool Client::ContainsTypeQty(uint16 typeID, uint32 qty)
+{
+    uint32 count = 0;   // stack sizes routinely exceed 65k - do not truncate to uint16
+    // this is for missions....we will have to determine if we have the TOTAL qty desired, in both cargo and hangar
+    std::vector<InventoryItemRef> items;
+    GetMissionItems(typeID, items);
+    for (auto cur : items)
+        count += cur->quantity();
 
     if (count >= qty)
         return true;
@@ -1843,14 +1859,16 @@ bool Client::IsMissionComplete(MissionOffer& data)
         } break;
         case Mission::Type::Encounter: {
         } break;
+        case Mission::Type::Trade:
+        case Mission::Type::Mining:
         case Mission::Type::Courier: {
+            /*  all three are rendered as a cargo objective by AgentBound::GetMissionObjectives()
+             *  (transport for courier/trade, fetch for mining), so they share one requirement:
+             *  be at the drop-off with the goods.
+             */
             if (m_locationID == data.destinationID)
                 if (ContainsTypeQty(data.courierTypeID, data.courierAmount))
                     return true;
-        } break;
-        case Mission::Type::Trade: {
-        } break;
-        case Mission::Type::Mining: {
         } break;
         case Mission::Type::Research: {
         } break;

@@ -28,6 +28,8 @@
 
 
 
+#include "eve-common.h"
+
 class APICacheManager
 {
 public:
@@ -55,7 +57,7 @@ public:
      *
      * @retval ?
      */
-    bool CacheDeposit(const std::string * apiDescriptor, const std::string * xmlDoc, uint64 win32timeExpiration);
+    bool CacheDeposit(const std::string * apiDescriptor, const std::string * xmlDoc, int64 win32timeExpiration);
 
 protected:
 

@@ -34,6 +34,7 @@ DungeonExplorationMgrService::DungeonExplorationMgrService() :
     Service("dungeonExplorationMgr")
 {
     this->Add("GetMyEscalatingPathDetails", &DungeonExplorationMgrService::GetMyEscalatingPathDetails);
+    this->Add("DeleteExpiredPathStep", &DungeonExplorationMgrService::DeleteExpiredPathStep);
 }
 
 PyResult DungeonExplorationMgrService::GetMyEscalatingPathDetails(PyCallArgs &call) {
@@ -92,7 +93,53 @@ PyResult DungeonExplorationMgrService::GetMyEscalatingPathDetails(PyCallArgs &ca
      *                    scrolllist.append(listentry.Get('EscalatingPathLocationEntry', data))
      *
      */
-    sLog.White("DungeonExplorationMgrService::Handle_GetMyEscalatingPathDetails()",  "size=%lu", call.tuple->size());
+    _log(SERVICE__CALLS, "DungeonExplorationMgrService::Handle_GetMyEscalatingPathDetails() - size=%lli", call.tuple->size());
+    call.Dump(SERVICE__CALL_DUMP);
+
+    /*  Escalating paths (expeditions) are not generated server-side yet, but the client iterates
+     *  whatever this call returns the moment the journal's Expeditions tab is drawn.  Returning
+     *  PyNone raises "TypeError: 'NoneType' object is not iterable" in journal.py ShowExpeditions()
+     *  and takes the whole journal window down with it.  Hand back a correctly-shaped, empty
+     *  util.Rowset instead.
+     *    - form.Journal::ShowExpeditions() iterates the rowset, reading .dungeon, .destDungeon,
+     *      .pathStep and .expiryTime from each row.
+     *    - JournalSvc::OnEscalatingPathMessage() builds util.IndexRowset(rs.header, rs.lines,
+     *      'instanceID'), so 'instanceID' has to be in the header too.
+     */
+    return GetEmptyPathRowset();
+}
+
+PyObject* DungeonExplorationMgrService::GetEmptyPathRowset()
+{
+    /*  util.Row raises AttributeError for anything missing from the header, and
+     *  util.IndexRowset() does header.index('instanceID') even on an empty rowset, so the full
+     *  column set has to be declared here even though we never send a line.
+     */
+    PyList* header = new PyList(6);
+        header->SetItemString(0, "instanceID");
+        header->SetItemString(1, "dungeon");
+        header->SetItemString(2, "srcDungeon");
+        header->SetItemString(3, "destDungeon");
+        header->SetItemString(4, "pathStep");
+        header->SetItemString(5, "expiryTime");
+
+    PyDict* args = new PyDict();
+        args->SetItemString("header", header);
+        args->SetItemString("RowClass", new PyToken("util.Row"));
+        args->SetItemString("lines", new PyList());
+
+    return new PyObject("util.Rowset", args);
+}
+
+//  instanceID is taken as PyRep* rather than PyInt*: dungeon instance ids come off the item id
+//  sequence and marshal as PyLong once they pass INT32_MAX, which a PyInt* parameter would reject
+//  in Callable's validateArg() and turn into a method_not_found on the client.
+PyResult DungeonExplorationMgrService::DeleteExpiredPathStep(PyCallArgs& call, PyRep* instanceID)
+{
+    /*  called from journal.py DeleteExpeditionEntry() when the player clears an expired expedition
+     *  from the journal.  We have no paths to delete yet, but the call still has to answer.
+     */
+    _log(SERVICE__CALLS, "DungeonExplorationMgrService::Handle_DeleteExpiredPathStep() - instanceID=%li", PyRep::IntegerValue(instanceID));
     call.Dump(SERVICE__CALL_DUMP);
 
     return PyStatic.NewNone();

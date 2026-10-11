@@ -284,6 +284,58 @@ SET( fleet_SOURCE
      "${TARGET_SOURCE_DIR}/fleet/FleetProxy.cpp"
      "${TARGET_SOURCE_DIR}/fleet/FleetService.cpp")
 
+SET( apiserver_INCLUDE
+     "${TARGET_INCLUDE_DIR}/apiserver/APIAccountDB.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APIAccountManager.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APIActiveObjectManager.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APIAdminManager.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APICacheManager.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APICharacterDB.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APICharacterManager.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APIDBUtil.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APICorporationManager.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APIEveSystemManager.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APIMapManager.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APIServer.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APIServerConnection.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APIServerListener.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APIServerManager.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APIServiceDB.h"
+     "${TARGET_INCLUDE_DIR}/apiserver/APIServiceManager.h" )
+SET( apiserver_SOURCE
+     "${TARGET_SOURCE_DIR}/apiserver/APIAccountDB.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APIAccountManager.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APIActiveObjectManager.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APIAdminManager.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APICacheManager.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APICharacterDB.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APICharacterManager.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APICorporationManager.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APIEveSystemManager.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APIMapManager.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APIServer.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APIServerConnection.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APIServerListener.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APIServerManager.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APIServiceDB.cpp"
+     "${TARGET_SOURCE_DIR}/apiserver/APIServiceManager.cpp" )
+
+SET( espserver_INCLUDE
+     "${TARGET_INCLUDE_DIR}/espserver/ESPDB.h"
+     "${TARGET_INCLUDE_DIR}/espserver/ESPHtmlWriter.h"
+     "${TARGET_INCLUDE_DIR}/espserver/ESPPages.h"
+     "${TARGET_INCLUDE_DIR}/espserver/ESPRequest.h"
+     "${TARGET_INCLUDE_DIR}/espserver/ESPServer.h"
+     "${TARGET_INCLUDE_DIR}/espserver/ESPServerConnection.h"
+     "${TARGET_INCLUDE_DIR}/espserver/ESPServerListener.h" )
+SET( espserver_SOURCE
+     "${TARGET_SOURCE_DIR}/espserver/ESPDB.cpp"
+     "${TARGET_SOURCE_DIR}/espserver/ESPHtmlWriter.cpp"
+     "${TARGET_SOURCE_DIR}/espserver/ESPPages.cpp"
+     "${TARGET_SOURCE_DIR}/espserver/ESPServer.cpp"
+     "${TARGET_SOURCE_DIR}/espserver/ESPServerConnection.cpp"
+     "${TARGET_SOURCE_DIR}/espserver/ESPServerListener.cpp" )
+
 SET( imageserver_INCLUDE
      "${TARGET_INCLUDE_DIR}/imageserver/ImageServer.h"
      "${TARGET_INCLUDE_DIR}/imageserver/ImageServerConnection.h"
@@ -487,6 +539,7 @@ SET( ship_modules_INCLUDE
      "${TARGET_INCLUDE_DIR}/ship/modules/PassiveModule.h"
      "${TARGET_INCLUDE_DIR}/ship/modules/RigModule.h"
      "${TARGET_INCLUDE_DIR}/ship/modules/SubSystemModule.h"
+     "${TARGET_INCLUDE_DIR}/ship/modules/SuperWeapon.h"
      "${TARGET_INCLUDE_DIR}/ship/modules/TurretFormulas.h"
      "${TARGET_INCLUDE_DIR}/ship/modules/TurretModule.h"
      "${TARGET_INCLUDE_DIR}/ship/modules/CynoModule.h" )
@@ -500,6 +553,7 @@ SET( ship_modules_SOURCE
      "${TARGET_SOURCE_DIR}/ship/modules/PassiveModule.cpp"
      "${TARGET_SOURCE_DIR}/ship/modules/RigModule.cpp"
      "${TARGET_SOURCE_DIR}/ship/modules/SubSystemModule.cpp"
+     "${TARGET_SOURCE_DIR}/ship/modules/SuperWeapon.cpp"
      "${TARGET_SOURCE_DIR}/ship/modules/TurretFormulas.cpp"
      "${TARGET_SOURCE_DIR}/ship/modules/TurretModule.cpp"
      "${TARGET_SOURCE_DIR}/ship/modules/CynoModule.cpp" )
@@ -659,6 +713,8 @@ SOURCE_GROUP( "src\\exploration"   FILES ${explore_INCLUDE} )
 SOURCE_GROUP( "src\\faction"       FILES ${faction_INCLUDE} )
 SOURCE_GROUP( "src\\fleet"         FILES ${fleet_INCLUDE} )
 SOURCE_GROUP( "src\\imageserver"   FILES ${imageserver_INCLUDE} )
+SOURCE_GROUP( "src\\espserver"     FILES ${espserver_INCLUDE} )
+SOURCE_GROUP( "src\\apiserver"     FILES ${apiserver_INCLUDE} )
 SOURCE_GROUP( "src\\inventory"     FILES ${inventory_INCLUDE} )
 SOURCE_GROUP( "src\\mail"          FILES ${mail_INCLUDE} )
 SOURCE_GROUP( "src\\manufacturing" FILES ${manufacturing_INCLUDE} )
@@ -698,6 +754,8 @@ SOURCE_GROUP( "src\\exploration"   FILES ${explore_SOURCE} )
 SOURCE_GROUP( "src\\faction"       FILES ${faction_SOURCE} )
 SOURCE_GROUP( "src\\fleet"         FILES ${fleet_SOURCE} )
 SOURCE_GROUP( "src\\imageserver"   FILES ${imageserver_SOURCE} )
+SOURCE_GROUP( "src\\espserver"     FILES ${espserver_SOURCE} )
+SOURCE_GROUP( "src\\apiserver"     FILES ${apiserver_SOURCE} )
 SOURCE_GROUP( "src\\inventory"     FILES ${inventory_SOURCE} )
 SOURCE_GROUP( "src\\mail"          FILES ${mail_SOURCE} )
 SOURCE_GROUP( "src\\manufacturing" FILES ${manufacturing_SOURCE} )
@@ -737,6 +795,8 @@ ADD_EXECUTABLE( "${TARGET_NAME}"
                 ${explore_INCLUDE}        ${explore_SOURCE}
                 ${faction_INCLUDE}        ${faction_SOURCE}
                 ${fleet_INCLUDE}          ${fleet_SOURCE}
+                ${apiserver_INCLUDE}      ${apiserver_SOURCE}
+                ${espserver_INCLUDE}      ${espserver_SOURCE}
                 ${imageserver_INCLUDE}    ${imageserver_SOURCE}
                 ${inventory_INCLUDE}      ${inventory_SOURCE}
                 ${mail_INCLUDE}           ${mail_SOURCE}

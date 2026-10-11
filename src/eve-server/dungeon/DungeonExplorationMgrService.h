@@ -34,6 +34,10 @@ public:
 
 protected:
     PyResult GetMyEscalatingPathDetails(PyCallArgs& call);
+    PyResult DeleteExpiredPathStep(PyCallArgs& call, PyRep* instanceID);
+
+private:
+    static PyObject* GetEmptyPathRowset();
 };
 
 #endif

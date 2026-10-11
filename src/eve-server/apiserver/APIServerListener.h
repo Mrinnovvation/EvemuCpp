@@ -40,15 +40,20 @@
  */
 class APIServerListener
 {
+    typedef boost::asio::ip::tcp proto;
 public:
     APIServerListener(boost::asio::io_context& io);
     ~APIServerListener();
 
 private:
     void StartAccept();
-    void HandleAccept(std::tr1::shared_ptr<APIServerConnection> connection);
+    void HandleAccept(std::shared_ptr<APIServerConnection> connection);
 
-    boost::asio::ip::tcp::acceptor* _acceptor;
+#if BOOST_VERSION >= 107400
+    boost::asio::basic_socket_acceptor<proto>* _acceptor;
+#else
+    proto::acceptor* _acceptor;
+#endif
 };
 
 #endif // __APISERVERLISTENER__H__INCL__

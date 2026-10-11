@@ -539,8 +539,10 @@ bool SystemManager::BuildDynamicEntity(const DBSystemDynamicEntity& entity, uint
         WreckSE* pWE = pSE->GetWreckSE();
         pWE->SetLaunchedByID(launcherID);
         if (IsCharacterID(entity.ownerID)) {
+            //  the owner may not be a logged-in client (podded, disconnected, or a drone's owner),
+            //   in which case FindClientByCharID returns nullptr - this runs on every wreck spawn.
             Client* pClient = sEntityList.FindClientByCharID(entity.ownerID);
-            if (pClient->InFleet())
+            if ((pClient != nullptr) and pClient->InFleet())
                 pWE->SetFleetID(pClient->GetFleetID());
         }
     }

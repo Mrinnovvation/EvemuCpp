@@ -47,6 +47,10 @@ docker compose stop
 ## Accounts
  Accounts will be created automatically when logging in with the client if the username is not already taken.
 
+## ESP and the XML API
+ EVEmu can serve the client's GM web pages (ESP, *EVE Server Pages*) and an `api.eveonline.com`-style XML API.
+ Both are disabled by default; see [doc/ESP_and_API.md](doc/ESP_and_API.md) for how to enable them and what they expose.
+
 ## Communication / Contact
  Check out the new [EVEmu Project website](https://evemu.dev), our [Discord](https://discord.gg/fTfAREYxbz) and [Forums](https://forums.evemu.dev)!
 

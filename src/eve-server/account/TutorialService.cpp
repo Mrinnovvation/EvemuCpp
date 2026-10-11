@@ -287,7 +287,10 @@ PyResult TutorialService::GetCareerAgents(PyCallArgs& call) {
                 self.careerAgents[careerType]['station'][agent.agentID] = sm.GetService('map').GetStation(agent.stationID)
 */
 
-    return PyStatic.NewNone();
+    //  the client iterates whatever comes back (tutorialsvc.py GetCareerFunnelAgents), so PyNone
+    //  raises "iteration over non-sequence" and kills the career funnel window.  Career agents are
+    //  not modelled yet - answer with an empty mapping.
+    return new PyDict();
 }
 
 

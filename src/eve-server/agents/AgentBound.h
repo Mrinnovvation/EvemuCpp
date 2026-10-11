@@ -42,8 +42,10 @@ protected:
     PyResult RemoveOfferFromJournal(PyCallArgs& call);
     PyResult GetOfferJournalInfo(PyCallArgs& call);
     PyResult GetEntryPoint(PyCallArgs& call);
-    PyResult GotoLocation(PyCallArgs& call, PyInt* locationType, PyInt* locationNumber, PyInt* referringAgentID);
-    PyResult WarpToLocation(PyCallArgs& call, PyInt* locationType, PyInt* locationNumber, PyFloat* warpRange, PyBool* fleet, PyInt* referringAgentID);
+    //  menusvc.py sends locationType as a string ('agenthomebase', 'objective.source', ...) and
+    //  referringAgentID as int-or-None, so PyInt* here made Callable reject the call outright.
+    PyResult GotoLocation(PyCallArgs& call, PyString* locationType, PyInt* locationNumber, std::optional <PyInt*> referringAgentID);
+    PyResult WarpToLocation(PyCallArgs& call, PyString* locationType, PyInt* locationNumber, PyFloat* warpRange, PyBool* fleet, std::optional <PyInt*> referringAgentID);
 
 private:
     PyTuple* GetMissionObjectives(Client* pClient, MissionOffer& offer);

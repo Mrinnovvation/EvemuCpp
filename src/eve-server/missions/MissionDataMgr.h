@@ -37,10 +37,16 @@ public:
     void                RemoveMissionOffer(uint32 charID, MissionOffer& data);
     void                LoadMissionOffers(uint32 charID, std::vector<MissionOffer>& data);
     void                LoadAgentOffers(const uint32 agentID, std::map<uint32, MissionOffer>& data);
-    void                CreateMissionOffer(uint8 typeID, uint8 level, uint8 raceID, bool important, MissionOffer& data);
+    bool                CreateMissionOffer(uint8 typeID, uint8 level, uint8 raceID, bool important, MissionOffer& data);
 
     std::string         GetTypeName(uint8 typeID);
     std::string         GetTypeLabel(uint8 typeID);
+
+    /*  the client only knows agentMissionState 0..3 (appConst.py) and does a bare dict lookup on it
+     *  in journal.py, so our internal states have to be folded down before they go on the wire.
+     *  returns -1 for offers that must not be sent to the client at all.
+     */
+    static int8         GetClientState(uint8 stateID);
 
     PyString* GetKillRes()                               { PyIncRef(KillPNG); return KillPNG; }
     PyString* GetMiningRes()                             { PyIncRef(MiningPNG); return MiningPNG; }
@@ -48,6 +54,8 @@ public:
 
 protected:
     void                Populate();
+
+    static bool         GetRandomMission(const std::multimap<uint8, CourierData>& missionMap, uint8 level, uint8 raceID, CourierData& into);
 
 private:
     uint8 m_procCount;

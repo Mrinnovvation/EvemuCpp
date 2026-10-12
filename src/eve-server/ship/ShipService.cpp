@@ -130,8 +130,15 @@ PyResult ShipBound::Board(PyCallArgs &call, PyInt* newShipID, std::optional<PyIn
         return nullptr;
     }
 
-    // this will segfault if newShipID is invalid or not in system inventory
-    pShipSE = pSystem->GetSE(newShipID->value())->GetShipSE();
+    //  GetSE() returns nullptr for an id that isn't in this system - test it before chaining
+    //   off it, or an invalid/stale shipID from the client segfaults the node.
+    SystemEntity* pNewSE = pSystem->GetSE(newShipID->value());
+    if (pNewSE == nullptr) {
+        _log(SHIP__ERROR, "Handle_Board() - No entity %u in system for %s.", newShipID->value(), pClient->GetName());
+        throw CustomError ("Something bad happened as you prepared to board the ship.  Ref: ServerError 25107.");
+    }
+
+    pShipSE = pNewSE->GetShipSE();
 
     if (pShipSE == nullptr) {
         _log(SHIP__ERROR, "Handle_Board() - Failed to get new ship %u for %s.", newShipID->value(), pClient->GetName());
@@ -150,11 +157,29 @@ PyResult ShipBound::Board(PyCallArgs &call, PyInt* newShipID, std::optional<PyIn
         throw CustomError ("You cannot board the ship while it's moving faster than 20m/s. Ref: ServerError 05139.");
 
     // should we eject player here and deny boarding new ship, or just leave char in current ship and return?
-    if (!pShipSE->GetShipItemRef()->ValidateBoardShip(pClient->GetChar()))
+    //  name the skill that's actually missing - capitals need several, and "you do not have the
+    //  skills" on its own gives the pilot no idea which one to train.
+    uint16 missingSkillID(0);
+    uint8 missingLevel(0);
+    if (!pShipSE->GetShipItemRef()->ValidateBoardShip(pClient->GetChar(), &missingSkillID, &missingLevel)) {
+        const ItemType* skillType = (missingSkillID > 0 ? sItemFactory.GetType(missingSkillID) : nullptr);
+        if (skillType != nullptr)
+            throw CustomError ("You do not have the skills to fly a %s.<br>It requires %s trained to level %u.",                     pShipSE->GetName(), skillType->name().c_str(), missingLevel);
         throw CustomError ("You do not have the skills to fly a %s.", pShipSE->GetName());
+    }
 
-    float distance = pClient->GetShipSE()->GetPosition().distance(pShipSE->GetPosition());
-    // fudge for radii ?
+    /* this must be a surface-to-surface range, not centre-to-centre.  the client's overview and its
+     *  Board menu entry both reason in surfaceDist, and warp-to-zero parks you one target-radius off
+     *  the hull, so a raw centre-to-centre test against shipBoardDistance (300m) can never be
+     *  satisfied for anything large:  a titan's radius alone is 6800-9000m, so boarding one would
+     *  mean sitting ~7km inside it.  subtract both radii, the same way
+     *  DestinyManager::AttemptDockOperation() does for the station docking perimeter. */
+    double distance = pClient->GetShipSE()->GetPosition().distance(pShipSE->GetPosition());
+    distance -= pClient->GetShipSE()->GetRadius();
+    distance -= pShipSE->GetRadius();
+    if (distance < 0)
+        distance = 0;
+
     if (distance > sConfig.world.shipBoardDistance)
         throw CustomError ("You are too far from %s to board it.<br>You must be within %u meters to board this ship.",\
                 pShipSE->GetName(), sConfig.world.shipBoardDistance);

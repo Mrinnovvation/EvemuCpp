@@ -99,7 +99,7 @@ public:
     PyList* ShipGetModuleList();
     PyDict* GetChargeState();
 
-    bool ValidateBoardShip(CharacterRef who);
+    bool ValidateBoardShip(CharacterRef who, uint16* missingSkillID=nullptr, uint8* missingLevel=nullptr);
     void SaveShip();
     void RepairShip(float fraction);
 
@@ -385,9 +385,12 @@ private:
     /*  boost data */
     BoostData m_boost = BoostData();
     bool m_boosted;
-    uint16 m_oldArmor;
-    uint16 m_oldShield;
-    uint16 m_oldScanRes;
+    //  these cache pre-boost hull values and MUST be wider than 16 bits: an Avatar has 1,120,000
+    //   armour and 464,000 shield, which wrapped to 5,888 / 5,248 through uint16 - and RemoveBoost
+    //   wrote the wrapped value back, permanently deleting ~99.5% of every capital's EHP.
+    uint32 m_oldArmor;
+    uint32 m_oldShield;
+    uint32 m_oldScanRes;
     uint32 m_oldTargetRange;
     float m_oldInertia;
 

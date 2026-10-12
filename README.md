@@ -1,111 +1,233 @@
-# EVEmu Crucible — Claude Fork
+# EVEmu Crucible — arm64
 
-This is a personal fork of [EVEmu Crucible](https://github.com/EvEmu-Project/evemu_Crucible), an open-source server emulator for the space MMO EVE Online. This fork is actively developed with AI-assisted bug fixes and feature implementations. See the [ChangeLog](doc/ChangeLog.md) for what has been added on top of the upstream project.
+An **arm64-native** fork of [EVEmu](https://evemu.dev), the open-source server
+emulator for EVE Online. It builds and runs on Apple Silicon and ARM Linux,
+where upstream does not.
 
-**Upstream project:** https://github.com/EvEmu-Project/evemu_Crucible
-**This fork:** https://github.com/rumpelstompskin/evemu_Crucible_Claude
+Movement, collisions and drones come from **Renn's rewrite of `DestinyManager`**,
+which runs the Crucible client's own movement simulation tic for tic instead of
+approximating it server-side. On top of that this tree carries the arm64 build
+fix, a marshal-layer correction, and subsystems pulled from the other active
+forks and reviewed module by module: the EVE XML API server, the ESP game-data
+pages, wormholes, titans and doomsday weapons, anomalies, market browser
+indexes, fitting commands and admin tooling.
+
+| | |
+|---|---|
+| **Upstream** | [EvEmu-Project/evemu_Crucible](https://github.com/EvEmu-Project/evemu_Crucible) |
+| **Movement base** | [rennr/evemu_Crucible](https://github.com/rennr/evemu_Crucible) `fix/movement`, via [AzediZ/evemu_Crucible](https://github.com/AzediZ/evemu_Crucible) |
+| **Client** | EVE Online *Crucible*, build **360229** (machoNet 320, EVE 7.31) |
+| **Verified on** | Apple Silicon (Docker, `debian:12` + `mariadb:11.8`), Windows x64 client |
+
+Credit for the movement and drone work belongs to Renn and AzediZ.
+[CHANGELOG.md](CHANGELOG.md) is theirs and describes it in their own words.
 
 ---
 
-## Introduction
-EVEmu is a work-in-progress server emulator for the space MMO EVE Online. This is an educational project. Please see the disclaimer below for details.
+## Why "arm64"
 
-## ChangeLog
-[ChangeLog](doc/ChangeLog.md)
+Upstream's `FindMySQL.cmake` looked only for `mysqlclient` under a `mysql`
+path suffix. On Debian the client library is `libmariadb` under a `mariadb`
+suffix, so the find silently failed and CMake fell through to
+`BuildMySQL.cmake`, which downloads a **hardcoded x86_64 MariaDB tarball** —
+there is no aarch64 branch. The link then died with `file in wrong format`.
 
-## `docker compose` Quickstart
+Adding the mariadb names and path suffix finds the library the OS already has:
 
-Clone **this fork** and run with Docker Compose:
 ```
-git clone https://github.com/rumpelstompskin/evemu_Crucible_Claude.git
-cd evemu_Crucible_Claude
+-- Found MySQL: /usr/lib/aarch64-linux-gnu/libmariadb.so
+```
+
+x86 builds only ever worked because the downloaded tarball happened to match
+the host. This affects every Apple Silicon and ARM Linux build.
+
+## What else is fixed
+
+### Movement, from the client's own simulation
+
+The old `DestinyManager` approximated the client's movement model on 1 Hz
+server tics and drifted from it constantly. The symptoms were endless: warps
+that overshot or stopped short, autopilot that disengaged on reaching a gate,
+ships that would not begin orbiting at all, objects that appeared tens of
+kilometres from where they actually were.
+
+Renn's rewrite replaces that with the client's own formulas, evaluated the way
+the client evaluates them, plus a matching collision implementation in
+`DestinyCollision.cpp`. This fork previously carried thirteen hand-measured
+fixes to the old code. Every one is superseded by the rewrite and has been
+dropped; they are kept for the record in the `archive/merge-physics-20261012`
+tag, because their commit messages document what was actually wrong.
+
+### Marshal opcodes, named from CCP's own source
+
+CCP/Fenris Creations published the Carbon engine in 2026. Its `blue`
+component carries the real `enum PYTYPES`, which settles **every** opcode this
+tree had marked unknown or guessed — `TY_DBROW`, `TY_REDUCE`, `TY_NEWOBJ`,
+`TY_PICKLER`, `TY_LONG` and the rest. The numbering is otherwise identical,
+which is the headline: EVEmu's marshal layer was already right.
+
+One real divergence came out of it: the packed-row length. CCP computes
+`(bits + 7) / 8`; ours rounded up even when the bool and null bits already
+divided by 8, giving 22 bytes where the client computes 21. Benign on the wire
+in both directions — `RLEUnPack` stops at its own `outlen` and zero-fills —
+but it was not the length the client calculates. Now exact.
+
+Write-up: [`doc/code_and_design_notes/marshal_vs_carbon.md`](doc/code_and_design_notes/marshal_vs_carbon.md).
+
+## What's new
+
+### Fitting from a DNA or EFT string
+
+`/fit` was **disabled upstream** — its body was commented out behind
+*"This command is currently disabled."* — so there was no way to fit a module
+from a command at all.
+
+```
+/fit 3170                     # by typeID       -- Light Ion Blaster II
+/fit "Damage Control II"      # by name         -- quote names with spaces
+/fit 12612 401                # with a quantity -- 401 x Void S
+
+/fitdna 16240:10190;3:438;1:3568;1:3170;8:12612;401:31532;1:31358;1:2456;1:12614;400::
+```
+
+That DNA is a full blaster Catalyst: 3 Magnetic Field Stabilizer II, a 1MN
+Afterburner II, a Small Capacitor Booster II, 8 Light Ion Blaster II loaded
+with Void S, a Burst Aerator and a Current Router, and Hobgoblin II drones.
+
+`/fitdna` takes the same ship-DNA format `GetShipDNA()` emits and the client's
+own `<url=fitting:...>` links carry. Both walk the identical path a client-side
+autofit uses — `FindAvailableModuleSlot` → `VerifyHoldType` →
+`TryModuleLimitChecks` → `AddItemByFlag` — so slot, skill, powergrid, CPU,
+calibration and group rules stay enforced and the client renders its usual
+error dialogs. Speculatively created items are deleted on refusal rather than
+orphaned, and `/fitdna` continues past a rejected module so the pilot keeps as
+much of the fit as the hull can take. It will not swap hulls.
+
+`utils/dev/eft_to_dna.py` converts **EFT** — the clipboard format every fitting
+site offers — into DNA, resolving names against the server's own `invTypes` so
+modules from later expansions are reported rather than silently dropped:
+
+```bash
+python3 utils/dev/eft_to_dna.py fit.txt
+```
+
+> ⚠️ The fitting commands build clean and deploy, but are **not yet verified
+> in-client**. The enforcement checks are believed intact and unproven.
+
+### Logging in without the game client
+
+A Crucible client is hard to obtain, which makes the server hard to test.
+`utils/dev/evemu_login.py` speaks enough python-marshal and machoNet to
+complete the full handshake — version exchange, VK command, placebo crypto,
+credential auth, session handshake — and decodes the `TY_DBROW` rows in
+`CryptoHandshakeAck`. Stdlib only, Python 3.9+:
+
+```bash
+python3 utils/dev/evemu_login.py --user test --password test --source .
+```
+
+This is also how the packed-row layout above was verified: the decoded
+`liveupdates` rows match `select * from liveupdates` byte for byte.
+
+---
+
+## Quickstart
+
+```bash
+git clone https://github.com/Mrinnovvation/EvemuCpp.git
+cd EvemuCpp
 docker compose up -d
 ```
 
-> **Note:** If your Docker installation is older (pre-Compose V2), use `docker-compose` (with a hyphen) instead of `docker compose`.
+Ports: **26000** game, **26001** image server. On first start the container
+copies `utils/config/*` into `./config/`, which is bind-mounted at `/app/etc` —
+so config edits need only a restart, never a rebuild.
 
-**NOTE:** Add `--build` to the command to force a rebuild of the source after pulling new changes:
-```
-docker compose up -d --build
-```
-
-Configuration files are stored in `./config/`. These can be modified and will persist across restarts.
-
-To shut down:
-```
-docker compose stop
-```
-
-To wipe and start fresh (removes database volume — market will re-seed on next start):
-```
-docker compose down -v
-docker compose up -d
-```
-
-## Market Seeding
-
-On first start, the market is automatically seeded across all regions that have NPC stations — empire high/low-sec space plus NPC null-sec (Curse, Stain, Venal, Great Wildlands, Syndicate, Outer Ring).
-
-> **Note:** The first boot will take significantly longer than normal due to the volume of market data being inserted. This is expected — just let it run. Subsequent restarts skip seeding entirely since the data is already stored in the database volume.
-
-The list of seeded regions can be changed via the `SEED_REGIONS` environment variable in `docker-compose.yml`.
-
-### Monitoring first-boot progress
-
-To follow the server container logs and see where the process is at:
 ```bash
-docker logs -f server
+docker compose stop          # shut down, keep the database
+docker compose down -v       # wipe the database volume too
+docker compose up -d --build # rebuild after code changes
 ```
 
-To check only the database container logs:
-```bash
-docker logs -f db
+First boot takes a while — the database migrates from scratch. Follow it with
+`docker logs -f server`. Market seeding is off by default; set
+`SEED_MARKET=TRUE` in `docker-compose.yml` to populate orders on first boot,
+and expect it to add substantially to that first start.
+
+## Connecting a real client
+
+Three things will cost you an evening if you don't know them:
+
+**1. The image server must advertise a reachable address.** `config/eve-server.xml`
+ships `<imageServer>127.0.0.1</imageServer>` (line 285), which tells the client
+to fetch portraits from *its own* loopback. Set it to the LAN IP of the machine
+running the server:
+
+```xml
+<imageServer>192.168.1.10</imageServer>   <!-- your server's LAN IP -->
 ```
 
-You will see output like `Executing migration ...` during the database setup phase — **this is normal, just wait for it to complete.** The server will start automatically once the migration and seeding are finished.
+**2. Create accounts by logging in, never by editing the database.** The server
+always replies `passwordVersion: 2`, so the real client sends a **hash** with
+an empty plaintext field. `Client::_VerifyLogin` branches on which one is
+present: a row you inserted by hand has a plaintext password the client never
+sends, and the hashed comparison fails *silently* — that warning is commented
+out upstream. Auto-creation (`<autoAccountRole>` greater than zero) stores both
+forms exactly as the client sent them, so it just works.
 
-## Building with Docker
-EVEmu can be built with Docker to ensure a consistent dependency base:
+**3. Roles are read into the session at login.** Set `<autoAccountRole>`
+(line 22) before first login to have new accounts created with it, or change it
+in the database afterwards and **relog** — nothing re-reads it in place. The
+shipped default is already `ROLE_DEV`, which is enough for most GM commands;
+`ROLE_BOSS` adds `ADMIN`.
+
 ```
-docker compose build
-```
-
-## Accounts
-Accounts are created automatically when logging in with the EVE client if the username is not already taken.
-
-## Granting Admin / GM Access
-
-Admin access unlocks in-game GM commands such as `/giveallskills me` and `/spawn`.
-
-**Step 1** — Start the server and log in with the EVE client. Complete character creation. This creates your account row in the database.
-
-**Step 2** — From the repo root, run the helper script with your **account name** (the name you type at the login screen, not your character name). Use quotes if it contains spaces:
-```bash
-bash utils/grant-admin.sh "Your Account Name"
+ROLE_DEV    7131450020691447808    (CREATOR | QA | PROGRAMMER)   <- shipped default
+ROLE_BOSS   7203507614729375744    (DEV | ADMIN)
 ```
 
-**Step 3** — Log out of the game client completely and log back in. GM commands are now available in in-game chat.
+Accounts are created automatically on first login if the username is free.
 
-To verify it worked:
-```bash
-docker exec db mysql -u evemu -pevemu evemu -e "SELECT accountName, role FROM account;"
-```
-A role value of `2013265920` confirms full admin access.
+## Status
 
-For a full list of available GM commands see [doc/admin_reference.md](doc/admin_reference.md).
+Working end to end against a live client: login, character creation, portrait
+upload, undock, warp, multi-jump autopilot, gate travel, docking, market,
+drones and drone upgrades.
 
-## ESP and the XML API
- EVEmu can serve the client's GM web pages (ESP, *EVE Server Pages*) and an `api.eveonline.com`-style XML API.
- Both are disabled by default; see [doc/ESP_and_API.md](doc/ESP_and_API.md) for how to enable them and what they expose.
+Where this tree's parts come from:
 
-## Communication / Contact
-For the upstream project: [EVEmu Project website](https://evemu.dev), [Discord](https://discord.gg/fTfAREYxbz), and [Forums](https://forums.evemu.dev).
+| source | what it brings | state |
+|---|---|---|
+| [`rennr`](https://github.com/rennr/evemu_Crucible) `fix/movement` | movement, collisions, missiles, autopilot, drones | **the base of this tree** |
+| [`AzediZ`](https://github.com/AzediZ/evemu_Crucible) | drone bay, ECM and fighter fixes on top of Renn's | **the base of this tree** |
+| [`rumpelstompskin`](https://github.com/rumpelstompskin/evemu_Crucible_Claude) | wormholes, anomalies, market seeding, ESP and XML API, titans | merged |
+| [`brandonbelisle`](https://github.com/brandonbelisle/evemu_Crucible) | login and overview fixes | merged |
+| [`pixelcatburglar`](https://github.com/pixelcatburglar/evemu_Crucible) | follow distance measured surface to surface | reviewed, superseded by the rewrite |
+| [`Black007Angel`](https://github.com/Black007Angel/evemu_Crucible-physics) | vector-math fixes | taken; the rest rejected, see the [review](doc/code_and_design_notes/fork_merge_review.md) |
+
+Not yet verified in-client on this base: the XML API server and the ESP pages
+(both off by default in config), the fitting commands, wormholes and titans.
+
+## Documentation
+
+- [ChangeLog](doc/ChangeLog.md)
+- [Movement and drones changelog](CHANGELOG.md) — Renn's and AzediZ's work, in their words
+- [Marshal vs. CCP's Carbon](doc/code_and_design_notes/marshal_vs_carbon.md)
+- GM commands: `/help` in-game, or the `COMMAND(...)` table in [`src/eve-server/admin/GMCommands.h`](src/eve-server/admin/GMCommands.h)
+- Upstream [wiki](https://wiki.evemu.dev), [Discord](https://discord.gg/fTfAREYxbz), [forums](https://forums.evemu.dev)
 
 ## Disclaimer
-***EVEmu is an educational project.***
-This means our primary interest is to learn and teach ourselves and our users more about C++ project development at scale. This software is not intended for running public servers, and we do not support that. We are not responsible for what others do with the source code downloaded from this project.
+
+***EVEmu is an educational project.*** Its primary interest is learning and
+teaching C++ project development at scale. This software is not intended for
+running public servers, and that is not supported. We are not responsible for
+what others do with source code downloaded from this project.
+
+EVE Online and all associated trademarks and game content are the property of
+CCP hf. Nothing in this project's licence grants any rights to them.
 
 ## Legal
+
     ------------------------------------------------------------------------------------
     LICENSE:
     ------------------------------------------------------------------------------------

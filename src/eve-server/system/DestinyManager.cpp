@@ -2126,6 +2126,36 @@ void DestinyManager::WarpStop(double currentShipSpeed) {
     m_stop = true;
     SafeDelete(m_warpState);
     m_targBubble = nullptr;
+
+    /*  Tell the client the warp effect is over.
+     *
+     *  'effects.Warping' goes out with start/active true when a warp begins --
+     *  WarpTo() does it on both the player and the NPC path -- and until now the
+     *  only place that ever sent it with start/active false was SendSetState().
+     *  A warp that merely ended sent nothing, so the client was left holding a
+     *  live effects.Warping activation.  Measured over one session: the effect
+     *  was started twice and stopped never.
+     *
+     *  The activation survives a gate jump, and the next warp's Start() then
+     *  runs on top of it and throws.  The client relays the traceback to us:
+     *
+     *      client/script/environment/effects/warp.py(180) GetWarpCollisions
+     *      AttributeError: 'NoneType' object has no attribute 'radius'
+     *
+     *  and a client that still believes it is warping will not begin another
+     *  warp.  That is the autopilot which reaches a gate, jumps, and then
+     *  switches itself off on the far side having sent the server nothing at
+     *  all -- no warp request, no error, just an arrival and silence.
+     */
+    std::vector<PyTuple*> warpEnded;
+    OnSpecialFX10 warpFx;
+        warpFx.guid = "effects.Warping";
+        warpFx.entityID = mySE->GetID();
+        warpFx.isOffensive = false;
+        warpFx.start = false;
+        warpFx.active = false;
+    warpEnded.push_back(warpFx.Encode());
+    SendDestinyUpdate(warpEnded);
     if ((mySE->IsNPCSE()) and (mySE->GetNPCSE()->GetAIMgr() != nullptr)) {
         mySE->GetNPCSE()->GetAIMgr()->WarpOutComplete();
     }
@@ -3584,35 +3614,35 @@ void DestinyManager::SendSetState() const {
         );
     }
 
-    // 2026-09-14 15:51 -04:00 | theocheesecake: During a non-warping
-    // stargate arrival, use the full SetState snapshot without synthesizing
-    // a warp-stop effect. The effect is queued, while SetState is immediate;
-    // traces show the effect arriving after SetState, followed by CmdStop.
-    // This targets that suspected cancellation trigger. Preserve the existing
-    // warp-effect synchronization for other SetState calls and actual warps.
-    if (!mySE->GetPilot()->IsGateJump() || m_ballMode == Destiny::Ball::Mode::WARP) {
-        // if the player is not warping, tell the client they're not warping.
-        // As of 2024-10-03, this doesn't always work and there are still issues
-        // with the client sometimes not starting a warp sequence.
-        std::vector<PyTuple*> updates;
-        OnSpecialFX10 sfx;
-        sfx.guid = "effects.Warping";
-        sfx.entityID = mySE->GetID();
-        sfx.isOffensive = false;
-        sfx.start = false;
-        sfx.active = false;
-        if (m_ballMode == Destiny::Ball::Mode::WARP) {
-            sfx.start = true; // TODO: verify if this is necessary
-            sfx.active = true;
-        }
-
-        updates.push_back(sfx.Encode());
-        SendDestinyUpdate(updates);
-        updates.clear();
-    } else {
-        sLog.Warning("APDebug", "%s: gate arrival - omitted synthetic warp-stop effect",
-            mySE->GetPilot()->GetName());
+    /*  Tell the client whether it is warping.
+     *
+     *  A gate arrival used to be excluded here, on the theory that this effect
+     *  -- queued, so it lands after the immediate SetState -- was what made the
+     *  client cancel autopilot.  That is disproven: with the effect omitted the
+     *  client still sends CmdStop a second after every arrival, and omitting it
+     *  cost the one notification a ship needs most after warping to a gate and
+     *  jumping, because nothing else used to clear the warp effect.  WarpStop()
+     *  now clears it at the moment the warp ends; this stays as the snapshot's
+     *  own statement of warp state, on every path, as it was upstream.
+     */
+    // if the player is not warping, tell the client they're not warping.
+    // As of 2024-10-03, this doesn't always work and there are still issues
+    // with the client sometimes not starting a warp sequence.
+    std::vector<PyTuple*> updates;
+    OnSpecialFX10 sfx;
+    sfx.guid = "effects.Warping";
+    sfx.entityID = mySE->GetID();
+    sfx.isOffensive = false;
+    sfx.start = false;
+    sfx.active = false;
+    if (m_ballMode == Destiny::Ball::Mode::WARP) {
+        sfx.start = true; // TODO: verify if this is necessary
+        sfx.active = true;
     }
+
+    updates.push_back(sfx.Encode());
+    SendDestinyUpdate(updates);
+    updates.clear();
 
     SetState ss;
 

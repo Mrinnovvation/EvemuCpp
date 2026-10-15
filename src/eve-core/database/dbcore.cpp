@@ -802,7 +802,15 @@ bool DBResultRow::GetBool( uint32 index ) const
         return false;
     }
 
-    return (mRow[index][0] != 0);
+    /* mRow is a MYSQL_ROW (char**):  the text protocol hands every column over as a string, so a tinyint(1) holding 0
+     *  arrives as "0" and its first byte is the character '0' (48), not 0.  Testing that byte against 0 therefore
+     *  answered "is this column non-empty", and every boolean column in the schema read as true -- dunSpawnGroups.warpIn
+     *  among them, which created every dungeon wave 100-150km off grid (SpawnMgr::SpawnDungeonNPC).  Parse the value the
+     *  way GetInt does instead, and treat NULL and the empty string as false. */
+    const char* value(mRow[index]);
+    if ((value == nullptr) or (value[0] == '\0'))
+        return false;
+    return (strtol(value, nullptr, 0) != 0);
 }
 
 uint32 DBResultRow::GetUInt( uint32 index ) const

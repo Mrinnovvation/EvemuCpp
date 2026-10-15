@@ -47,6 +47,7 @@ protected:
     PyResult RemoveChargeToHangar(PyCallArgs& call, PyTuple* chargeInfo, std::optional<PyRep*> quantity);
     PyResult RemoveChargeToCargo(PyCallArgs& call, PyTuple* chargeInfo, std::optional<PyRep*> quantity);
     PyResult MultiMerge(PyCallArgs& call, PyList* items, std::optional<PyRep*> sourceContainerID);
+    PyResult FitFitting(PyCallArgs& call, PyInt* shipID, PyObjectEx* fitting, PyInt* ownerID, PyDict* itemsByType, PyDict* dronesByType);
     PyResult Add(PyCallArgs& call, PyInt* itemID, PyInt* containerID);
     PyResult MultiAdd(PyCallArgs& call, PyList* itemIDs, PyInt* containerID);
     PyResult List(PyCallArgs& call, std::optional <PyInt*> listFlag);

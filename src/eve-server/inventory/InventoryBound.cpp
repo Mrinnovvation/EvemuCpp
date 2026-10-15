@@ -40,6 +40,7 @@
 #include "pos/Structure.h"
 #include "pos/Array.h"
 #include "ship/modules/GenericModule.h"
+#include "character/FittingDB.h"
 #include "system/BookmarkDB.h"
 #include "system/Container.h"
 #include "system/SystemManager.h"
@@ -65,6 +66,7 @@ InventoryBound::InventoryBound(EVEServiceManager &mgr, BoundServiceParent<Invent
 {
     EVEBoundObject::Add("List", &InventoryBound::List);
     EVEBoundObject::Add("Add", &InventoryBound::Add);
+    EVEBoundObject::Add("FitFitting", &InventoryBound::FitFitting);
     EVEBoundObject::Add("MultiAdd", &InventoryBound::MultiAdd);
     EVEBoundObject::Add("GetItem", &InventoryBound::GetItem);
     EVEBoundObject::Add("RemoveChargeToCargo", &InventoryBound::RemoveChargeToCargo);
@@ -1574,4 +1576,112 @@ void InventoryBound::BuildOutpostUpgrade(Client* pClient, StructureSE* pPlatform
 
     _log(POS__MESSAGE, "%s built %s into %s(%u):  upgrade level %u", pClient->GetName(), typeName.c_str(), stData.name.c_str(), stationID, stData.upgradeLevel);
     pClient->SendNotifyMsg("The %s has been installed in %s.  Docked pilots see the new services when they next dock.", typeName.c_str(), stData.name.c_str());
+}
+/*  The Fit button in the client's fitting window.
+ *
+ *  fittingsvc.LoadFitting works out for itself which hangar items make up the fit, then asks
+ *  the server to move them and iterates what comes back -- so a server with no handler at all
+ *  returned None and the button died on "'NoneType' object is not iterable" with one rig
+ *  fitted.  The return value is the list of types that could not be placed.
+ *
+ *  Of the five arguments only the first two are load-bearing here.  The fit arrives as the
+ *  client's own util.KeyVal, a (typeID, flagID, quantity) per slot, and that is the authority
+ *  on what goes where;  the dicts beside it are the client's working notes, a typeID -> itemID
+ *  index of the hangar and a typeID -> quantity of drones, both of which the server can work
+ *  out from its own inventory and would have to re-validate anyway.
+ *
+ *  It arrives on the inventory bound object, not on dogmaIM:  the client's own traceback
+ *  names a dogmax.DogmaLocation, but the bind the call actually travels on is the same one
+ *  its Add() uses when a module is dragged into a slot by hand.
+ */
+PyResult InventoryBound::FitFitting(PyCallArgs& call, PyInt* shipID, PyObjectEx* fitting, PyInt* ownerID,
+                                  PyDict* itemsByType, PyDict* dronesByType)
+{
+    Client* pClient(call.client);
+    if (pClient->IsInSpace())
+        throw UserError ("CanOnlyDoInStation");
+
+    ShipItemRef sRef(pClient->GetShip());
+    if ((sRef.get() == nullptr) or (sRef->itemID() != (uint32)shipID->value()))
+        throw CustomError ("You can only fit a saved fitting to the ship you are in.");
+
+    FittingData data;
+    FittingDB::Decode(fitting, data);           // throws the client's own errors on a malformed fit
+    if (sRef->typeID() != data.shipTypeID)
+        throw UserError ("CantFitModuleToThatShip");
+
+    /*  Everything in this pilot's hangar at this station, by type.  Items are taken from the
+     *  front as slots claim them, so two of a type fill two slots and never the same one twice.
+     */
+    std::map<uint32, std::vector<InventoryItemRef>> stock;
+    InventoryItemRef stationRef(sItemFactory.GetItemRef(pClient->GetStationID()));
+    if (stationRef.get() != nullptr) {
+        Inventory* pInv(stationRef->GetMyInventory());
+        if (pInv != nullptr) {
+            pInv->LoadContents();
+            std::vector<InventoryItemRef> hangar;
+            pInv->GetItemsByFlag(flagHangar, hangar);
+            for (auto cur : hangar)
+                if ((cur->ownerID() == pClient->GetCharacterID()) and (cur->itemID() != sRef->itemID()))
+                    stock[cur->typeID()].push_back(cur);
+        }
+    }
+
+    std::set<uint32> failed;
+    for (auto cur : data.items) {
+        uint32 typeID(std::get<0>(cur)), qty(std::get<2>(cur));
+        EVEItemFlags flag((EVEItemFlags)std::get<1>(cur));
+
+        /*  A slot takes one item;  a drone bay or a loaded charge takes a quantity, which may
+         *  mean splitting a stack and leaving the rest in the hangar.
+         */
+        uint32 remaining(IsModuleSlot(flag) and (flag != flagDroneBay) ? 1 : qty);
+
+        while (remaining > 0) {
+            std::map<uint32, std::vector<InventoryItemRef>>::iterator itr(stock.find(typeID));
+            if ((itr == stock.end()) or itr->second.empty()) {
+                failed.insert(typeID);
+                break;
+            }
+
+            InventoryItemRef iRef(itr->second.front());
+            uint32 take(std::min(remaining, (uint32)iRef->quantity()));
+            if ((uint32)iRef->quantity() > take) {
+                InventoryItemRef part(iRef->Split(take));
+                if (part.get() == nullptr) {
+                    failed.insert(typeID);
+                    break;
+                }
+                iRef = part;
+            } else {
+                itr->second.erase(itr->second.begin());
+            }
+
+            bool placed(false);
+            try {
+                sRef->VerifyHoldType(flag, iRef, pClient);
+                if (IsModuleSlot(flag))
+                    sRef->TryModuleLimitChecks(flag, iRef);
+                placed = (sRef->AddItemByFlag(flag, iRef, pClient) > 0);
+            } catch (...) {
+                /*  Powergrid, CPU, calibration, a slot that will not take this module -- the
+                 *  rest of the fit should still go on, and the client is told which type the
+                 *  pilot has to sort out.
+                 */
+                placed = false;
+            }
+            if (!placed) {
+                failed.insert(typeID);
+                break;
+            }
+            remaining -= take;
+        }
+    }
+
+    sRef->OnlineAll();
+
+    PyList* res = new PyList();
+    for (auto cur : failed)
+        res->AddItem(new PyInt(cur));
+    return res;
 }

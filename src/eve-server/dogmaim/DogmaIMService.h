@@ -61,6 +61,7 @@ public:
     DogmaIMBound(EVEServiceManager& mgr, DogmaIMService& parent, uint32 locationID, uint32 groupID);
 
 protected:
+    PyResult FitFitting(PyCallArgs& call, PyInt* shipID, PyObjectEx* fitting, PyInt* ownerID, PyDict* itemsByType, PyDict* dronesByType);
     PyResult ChangeDroneSettings(PyCallArgs& call, PyDict* settings);
     PyResult LinkWeapons(PyCallArgs& call, PyInt* shipID, PyInt* masterID, PyInt* fromID);
     PyResult LinkAllWeapons(PyCallArgs& call, PyInt* shipID);

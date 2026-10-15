@@ -513,6 +513,17 @@ void TargetManager::LoseAllTargets()
             ClearTarget(tSE);
         }
     }
+
+    /*  A per-target "lost" is enough for a lock the client knows it finished, but a lock still
+     *  being acquired lives in a list of its own over there, and a "lost" for something it was
+     *  never told was "added" is discarded -- the entry stays, and the client will not ask to
+     *  lock that entity again, while an entity it has never tried stays lockable.  That is the
+     *  shape of it in play:  after a jam the rats already engaged cannot be re-locked and a
+     *  fresh wave can.  Losing every lock is what "clear" means, so say it.
+     */
+    if (mySE->HasPilot())
+        TargetsCleared();
+
     _log(TARGET__TRACE, "LoseAllTargets:  %s(%u) has lost all its locks.", mySE->GetName(), mySE->GetID());
 }
 

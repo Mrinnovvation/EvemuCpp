@@ -146,6 +146,65 @@ bool FittingDB::DeleteFitting(uint32 ownerID, uint32 fittingID)
     return true;
 }
 
+/*  A saved fit is picked by name in the client's fitting window, so the name is what a
+ *  player has to hand;  a bare number is tried as a fittingID first, because the listing
+ *  prints those.  Name matching is the column's own collation, which is case-insensitive.
+ */
+bool FittingDB::FindFitting(uint32 ownerID, const std::string& key, uint32& fittingID, FittingData& into)
+{
+    DBQueryResult res;
+    bool found(false);
+
+    if (IsNumber(key))
+        if (sDatabase.RunQuery(res, "SELECT fittingID, name, description, shipTypeID FROM chrFittings"
+                " WHERE ownerID = %u AND fittingID = %u", ownerID, (uint32)atoi(key.c_str())))
+            found = (res.GetRowCount() > 0);
+
+    if (!found) {
+        std::string name;
+        sDatabase.DoEscapeString(name, key);
+        if (!sDatabase.RunQuery(res, "SELECT fittingID, name, description, shipTypeID FROM chrFittings"
+                " WHERE ownerID = %u AND name = '%s' ORDER BY fittingID", ownerID, name.c_str())) {
+            codelog(DATABASE__ERROR, "Error in FindFitting query: %s", res.error.c_str());
+            return false;
+        }
+    }
+
+    DBResultRow row;
+    if (!res.GetRow(row))
+        return false;
+
+    fittingID = row.GetUInt(0);
+    into.name = row.GetText(1);
+    into.description = row.GetText(2);
+    into.shipTypeID = row.GetUInt(3);
+    into.items.clear();
+
+    DBQueryResult items;
+    if (!sDatabase.RunQuery(items, "SELECT typeID, flagID, quantity FROM chrFittingItems"
+            " WHERE fittingID = %u ORDER BY flagID, typeID", fittingID)) {
+        codelog(DATABASE__ERROR, "Error in FindFitting items query: %s", items.error.c_str());
+        return true;        // the header is real;  an empty fit is still a fit
+    }
+    while (items.GetRow(row))
+        into.items.push_back(std::make_tuple(row.GetUInt(0), (uint16)row.GetUInt(1), row.GetUInt(2)));
+
+    return true;
+}
+
+void FittingDB::ListFittings(uint32 ownerID, std::vector<std::tuple<uint32, std::string, uint32>>& into)
+{
+    DBQueryResult res;
+    if (!sDatabase.RunQuery(res, "SELECT fittingID, name, shipTypeID FROM chrFittings"
+            " WHERE ownerID = %u ORDER BY fittingID", ownerID)) {
+        codelog(DATABASE__ERROR, "Error in ListFittings query: %s", res.error.c_str());
+        return;
+    }
+    DBResultRow row;
+    while (res.GetRow(row))
+        into.push_back(std::make_tuple(row.GetUInt(0), row.GetText(1), row.GetUInt(2)));
+}
+
 bool FittingDB::UpdateNameAndDescription(uint32 ownerID, uint32 fittingID, const std::string& name, const std::string& description)
 {
     if (!FittingExists(ownerID, fittingID))

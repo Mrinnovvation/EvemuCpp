@@ -60,6 +60,10 @@ public:
     // returns the new fittingID (0 on failure)
     static uint32 SaveFitting(uint32 ownerID, const FittingData& data);
     static bool DeleteFitting(uint32 ownerID, uint32 fittingID);
+    // one saved fitting by fittingID or by name (the client's window shows names, so that is what a player has to hand)
+    static bool FindFitting(uint32 ownerID, const std::string& key, uint32& fittingID, FittingData& into);
+    // fittingID, name, shipTypeID for every fit this owner has saved
+    static void ListFittings(uint32 ownerID, std::vector<std::tuple<uint32, std::string, uint32>>& into);
     static bool UpdateNameAndDescription(uint32 ownerID, uint32 fittingID, const std::string& name, const std::string& description);
 
     // decodes a client util.KeyVal fitting and validates it like the client's fittingSvc.VerifyFitting (throws the client's errors)

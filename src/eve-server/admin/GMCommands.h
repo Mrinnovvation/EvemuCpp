@@ -28,9 +28,9 @@ COMMAND( setattr, Acct::Role::CONTENT,
 COMMAND( fit, Acct::Role::VIP,
         "(itemID) - Fits selected item to active ship." )
 COMMAND( givefit, Acct::Role::VIP,
-        "(dna) - Delivers a whole fit (hull, modules, charges, drones) to your station hangar.  Dock first." )
+        "(\"saved fit name\"|fittingID|dna) - Stocks your station hangar with everything a fit needs, then press Fit.  No argument lists your saved fits." )
 COMMAND( fitdna, Acct::Role::VIP,
-        "(dna) - Fits a whole ship DNA string to the ship you are flying, then onlines it." )
+        "(\"saved fit name\"|dna) - Fits a whole saved fit or DNA string to the ship you are flying, then onlines it." )
 COMMAND( giveallskills, Acct::Role::ADMIN,
         "(me|charID|\"name\") - gives ALL skills to designated online character or self" )
 COMMAND( giveskill, Acct::Role::VIP,

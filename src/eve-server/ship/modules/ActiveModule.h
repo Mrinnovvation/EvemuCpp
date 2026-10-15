@@ -121,7 +121,9 @@ protected:
     void                UpdateDamage(uint16 attrID, uint16 srcAttrID, InventoryItemRef iRef);
 
     /* for linked weapons */
-    void                SetSlaveData(ShipSE* pShip);
+    /*  a banked weapon's slaves are never Activated -- the bank cycles through its master -- so
+     *  they carry no effect, target or timer.  pMaster lends them its own, for the display. */
+    void                SetSlaveData(ShipSE* pShip, ActiveModule* pMaster = nullptr);
 
     /* for modules that use charges */
     void                ConsumeCharge();                // common code to reduce ammo by one unit.
@@ -144,6 +146,7 @@ protected:
     bool                m_needsTarget :1;
 
 private:
+    uint32              m_slaveCycleMS;                 // a slave's cycle for display:  its master's, as it has no timer of its own
     Timer               m_timer;
     Timer               m_reloadTimer;
 

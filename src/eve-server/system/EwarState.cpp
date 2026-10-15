@@ -130,6 +130,8 @@ void EwarState::OnStart(Entry& e)
             // the target loses all its locks and can't lock anything until the jam ends
             if (m_owner->TargetMgr() != nullptr)
                 m_owner->TargetMgr()->LoseAllTargets();
+            _log(EFFECTS__WARNING, "EwarState: JAM START on %s(%u) from %u (module %u) for %ums;  %lu entry(s) held.",
+                    m_owner->GetName(), m_owner->GetID(), e.sourceID, moduleID, e.durationMs, m_entries.size());
             Ewar::SendJamNotify(true, e.sourceID, moduleID, m_owner, e.start, e.durationMs);
             // the 'trying to jam' overview icon belongs to whoever runs the jammer (it lasts longer than a jam)
             return;
@@ -154,6 +156,8 @@ void EwarState::OnEnd(Entry& e)
     uint32 moduleID(e.moduleID != 0 ? e.moduleID : e.sourceID);
     switch (e.kind) {
         case Ewar::Jam: {
+            _log(EFFECTS__WARNING, "EwarState: JAM END on %s(%u) from %u (module %u);  %lu entry(s) left.",
+                    m_owner->GetName(), m_owner->GetID(), e.sourceID, moduleID, m_entries.size());
             Ewar::SendJamNotify(false, e.sourceID, moduleID, m_owner);
             return;
         }

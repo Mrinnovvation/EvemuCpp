@@ -72,6 +72,7 @@ m_needsTarget(false),
 m_targetID(0),
 m_reactivateAt(0),
 m_effectID(0),
+m_slaveCycleMS(0),
 m_fieldActive(false),
 m_Stop(true),
 m_heating(false)
@@ -506,7 +507,7 @@ void ActiveModule::Activate(uint16 effectID, uint32 targetID/*0*/, int16 repeat/
     if (m_linkMaster) {
         m_shipRef->GetLinkedWeaponMods(m_modRef->flag(), modules);
         for (auto cur : modules) {
-            cur->GetActiveModule()->SetSlaveData(pShip);
+            cur->GetActiveModule()->SetSlaveData(pShip, this);
             cur->GetActiveModule()->ShowEffect(true, false);
         }
     } else {
@@ -591,11 +592,28 @@ void ActiveModule::Deactivate(std::string effect/*""*/)
     m_Stop = true;
 }
 
-void ActiveModule::SetSlaveData(ShipSE* pShip) {
+void ActiveModule::SetSlaveData(ShipSE* pShip, ActiveModule* pMaster/*nullptr*/) {
     m_shipSE = pShip;
     m_sysMgr = pShip->SystemMgr();
     m_targMgr = pShip->TargetMgr();
     m_destinyMgr = pShip->DestinyMgr();
+
+    /*  Only the master of a bank is Activated, so a slave has no effectID, no target and no
+     *  running timer -- and ShowEffect was called on it all the same.  Every hardpoint but one
+     *  therefore told the client effectID 0 with a zero duration, which is nothing it can draw:
+     *  one gun of a group of four cycled, and the other three sat still while firing.
+     *
+     *  The master's cycle is borrowed for display only.  The slave's own timer stays stopped,
+     *  because the bank fires through the master and a running timer here would have these
+     *  modules cycle on their own.
+     */
+    if (pMaster == nullptr)
+        return;
+    m_effectID = pMaster->m_effectID;
+    m_targetID = pMaster->m_targetID;
+    m_targetSE = pMaster->m_targetSE;
+    m_repeat = pMaster->m_repeat;
+    m_slaveCycleMS = pMaster->m_timer.GetDuration();
 }
 
 SystemBubble* ActiveModule::Bubble() const {
@@ -1688,6 +1706,11 @@ void ActiveModule::ShowEffect(bool active/*false*/, bool abort/*false*/)
      */
     const int64 perMS(EvE::Time::Second / EvE::Time::mSecond);
     uint32 cycleMS(m_timer.GetDuration());
+    if ((cycleMS == 0) and (m_slaveCycleMS > 0)) {
+        // a slave of a bank:  it has no timer, so report its master's cycle
+        cycleMS = m_slaveCycleMS;
+        timeLeft = m_slaveCycleMS;
+    }
     if (cycleMS < timeLeft)
         cycleMS = timeLeft;
 

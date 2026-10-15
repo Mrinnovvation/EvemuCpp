@@ -801,16 +801,30 @@ PyResult Command_killallnpcs(Client* pClient, CommandDB* db, EVEServiceManager &
 
     std::map< uint32, SystemEntity* > entityVec;
     pClient->GetShipSE()->SysBubble()->GetEntities(entityVec);
+    uint32 killed(0), scenery(0);
     for (auto cur : entityVec) {
         if (cur.second == nullptr)
             continue;
-        if (cur.second->IsNPCSE()) {
-            Damage damage(pClient->GetShipSE(),true);
-            cur.second->GetNPCSE()->Killed(damage);
+        if (!cur.second->IsNPCSE())
+            continue;
+        NPC* pNPC(cur.second->GetNPCSE());
+        /* a site's decoration (Large Collidable Structures:  bunkers, barriers, lookouts) loads as an npc too, so an
+         *  unfiltered sweep strips the dungeon of its scenery and leaves the rats alive.  only ships die here --
+         *  anything with no maxVelocity cannot move and is furniture (it has no wreck type either, which is what the
+         *  "Could not get wreckType" errors were) */
+        if ((pNPC->GetAIMgr() == nullptr) or (pNPC->GetAIMgr()->GetProfile().maxVelocity <= 0.0f)) {
+            ++scenery;
+            continue;
         }
+        Damage damage(pClient->GetShipSE(), true);
+        pNPC->Killed(damage);
+        ++killed;
     }
 
-    return nullptr;
+    // it returned nothing at all before:  a sweep that found no ships was indistinguishable from a broken command
+    pClient->SendInfoModalMsg("killallnpcs:  %u npc ship(s) killed in your bubble, %u scenery object(s) left standing.",
+                              killed, scenery);
+    return new PyString("killallnpcs done");
 }
 
 namespace {

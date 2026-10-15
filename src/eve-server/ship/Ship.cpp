@@ -137,6 +137,14 @@ void ShipItem::SetPlayer(Client* pClient) {
         // without the pilot's skills the ship's hp and capacitor may be smaller
         ClampDamageState();
         m_onlineModuleVec.clear();
+        /*  Tell the client that every lasting ewar on us has ended.  The EwarState goes with
+         *  the ship's entity and its destructor deliberately makes no noise, so a jam that was
+         *  live at this moment stayed latched in the client:  it then refused to even ask the
+         *  server to lock anything, and only a relog cleared it.  Clear() is the path that
+         *  ends them with their notifications, and nothing in the tree called it.
+         */
+        if ((m_pilot->GetShipSE() != nullptr) and (m_pilot->GetShipSE()->GetEwar() != nullptr))
+            m_pilot->GetShipSE()->GetEwar()->Clear();
         m_pilot = nullptr;
         m_isActive = false;
         return;
@@ -2154,17 +2162,28 @@ void ShipItem::LoadWeaponGroups()
         //SELECT masterID, slaveID FROM shipWeaponGroups
         pMaster = m_ModuleManager->GetModule(row.GetInt(0));
         pSlave = m_ModuleManager->GetModule(row.GetInt(1));
+        /*  a bare error = true told nobody which row failed or why, and the failure is not
+         *  cheap:  it throws away every bank this ship has saved.
+         */
         if ((pMaster == nullptr) or (pSlave == nullptr) or (pMaster == pSlave)) {
+            _log(MODULE__WARNING, "ShipItem::LoadWeaponGroups() - %s(%u): master %i %s, slave %i %s.",
+                    name(), m_itemID, row.GetInt(0), (pMaster == nullptr ? "not fitted" : "ok"),
+                    row.GetInt(1), (pSlave == nullptr ? "not fitted" : (pMaster == pSlave ? "is the master" : "ok")));
             error = true;
             continue;
         }
         // the module moved or was swapped since the group was saved
         if ((pMaster->typeID() != pSlave->typeID()) or !IsGroupable(pMaster) or !IsGroupable(pSlave)) {
+            _log(MODULE__WARNING, "ShipItem::LoadWeaponGroups() - %s(%u): master %u is type %u, slave %u is type %u;  groupable %u/%u.",
+                    name(), m_itemID, pMaster->itemID(), pMaster->typeID(), pSlave->itemID(), pSlave->typeID(),
+                    IsGroupable(pMaster), IsGroupable(pSlave));
             error = true;
             continue;
         }
         // a module in two banks
         if ((GetBankMaster(pSlave) != nullptr) or (pMaster->IsLinked() and !pMaster->IsMaster())) {
+            _log(MODULE__WARNING, "ShipItem::LoadWeaponGroups() - %s(%u): slave %u is already banked, or master %u is a slave.",
+                    name(), m_itemID, pSlave->itemID(), pMaster->itemID());
             error = true;
             continue;
         }
@@ -2173,9 +2192,20 @@ void ShipItem::LoadWeaponGroups()
     }
 
     if (error) {
-        UnlinkAllWeapons(true);
-        if (m_pilot != nullptr)
-            m_pilot->SendErrorMsg("There was an error loading a weapon group master.  Ref: ServerError 06123");
+        /*  A stale row -- a module sold, swapped or moved since the bank was saved -- used to
+         *  throw away every bank on the ship, which is why a group never survived two logins.
+         *  Keep what did load and write the survivors back, so one bad row costs its own bank.
+         *  If nothing loaded at all the saved rows are left alone:  that looks less like stale
+         *  content than like the modules not being ready yet, and the groups are worth more
+         *  than the tidiness.
+         */
+        if (!m_linkedWeapons.empty()) {
+            SaveWeaponGroups();
+            if (m_pilot != nullptr)
+                m_pilot->SendNotifyMsg("Some of your weapon groups could not be restored and have been dropped.");
+        } else if (m_pilot != nullptr) {
+            m_pilot->SendNotifyMsg("Your weapon groups could not be restored this time.");
+        }
     }
 
     SafeDelete(res);

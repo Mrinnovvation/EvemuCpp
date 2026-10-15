@@ -27,6 +27,10 @@ COMMAND( setattr, Acct::Role::CONTENT,
          "(itemID|me|char) (attributeID|name) (value) - sets a live attribute value until the next refit/undock" )
 COMMAND( fit, Acct::Role::VIP,
         "(itemID) - Fits selected item to active ship." )
+COMMAND( givefit, Acct::Role::VIP,
+        "(dna) - Delivers a whole fit (hull, modules, charges, drones) to your station hangar.  Dock first." )
+COMMAND( fitdna, Acct::Role::VIP,
+        "(dna) - Fits a whole ship DNA string to the ship you are flying, then onlines it." )
 COMMAND( giveallskills, Acct::Role::ADMIN,
         "(me|charID|\"name\") - gives ALL skills to designated online character or self" )
 COMMAND( giveskill, Acct::Role::VIP,

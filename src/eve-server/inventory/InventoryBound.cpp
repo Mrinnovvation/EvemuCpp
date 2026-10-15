@@ -1579,22 +1579,77 @@ void InventoryBound::BuildOutpostUpgrade(Client* pClient, StructureSE* pPlatform
 }
 /*  The Fit button in the client's fitting window.
  *
- *  fittingsvc.LoadFitting works out for itself which hangar items make up the fit, then asks
- *  the server to move them and iterates what comes back -- so a server with no handler at all
- *  returned None and the button died on "'NoneType' object is not iterable".  The return
- *  value is the list of types that could not be placed.
+ *  fittingsvc.LoadFitting does the hard part itself:  it reads the saved fit, works out which
+ *  of the pilot's items will fill it, and then asks the server only to move them.  It then
+ *  iterates the answer, so a server with no handler returned None and the button died on
+ *  "'NoneType' object is not iterable".  The return value is the list of types it could not
+ *  place, which the client reports to the pilot.
  *
- *  It arrives on the inventory bind, not on dogmaIM:  the client's own traceback names a
- *  dogmax.DogmaLocation, but the bind the call travels on is the same one Add() uses when a
- *  module is dragged into a slot by hand.
+ *  The call arrives on the inventory bind -- the client's traceback names a DogmaLocation, but
+ *  the bind is the one Add() uses when a module is dragged into a slot by hand.
  *
- *  Of the five arguments only the first two are load-bearing.  The fit is the client's own
- *  util.KeyVal, a (typeID, flagID, quantity) per slot, which FittingDB::Decode parses and
- *  validates;  the dicts beside it are the client's working notes, a typeID index of the
- *  hangar and a drone count, both of which the server has to find and re-validate anyway.
+ *  The arguments are the client's own resolution of the fit, and no part of the saved fitting
+ *  is sent:
+ *      shipID          the ship to fit, which is the one being flown
+ *      itemsToFit      collections.defaultdict(set):  typeID -> the itemIDs it picked out
+ *      stationID       where it expects those items to be
+ *      modulesByFlag   flagID -> typeID, one entry per slot, rigs included
+ *      dronesByType    typeID -> how many to put in the drone bay
+ *
+ *  So the slots come from the client, which is what the pilot saw in the window, and each
+ *  module goes to the exact slot the fit names rather than the first free one of its bank.
  */
-PyResult InventoryBound::FitFitting(PyCallArgs& call, PyInt* shipID, PyObjectEx* fitting, PyInt* ownerID,
-                                    PyDict* itemsByType, PyDict* dronesByType)
+
+// collections.defaultdict and __builtin__.set both marshal as an ObjectEx:  the payload is in
+// the args tuple of the header, or in the object's own dict/list.
+static PyDict* fit_dict_of(PyRep* rep)
+{
+    if (rep == nullptr)
+        return nullptr;
+    if (rep->IsDict())
+        return rep->AsDict();
+    if (rep->IsObjectEx()) {
+        PyObjectEx* obj(rep->AsObjectEx());
+        PyRep* header(obj->header());
+        if ((header != nullptr) and header->IsTuple() and (header->AsTuple()->size() > 1)) {
+            PyRep* args(header->AsTuple()->GetItem(1));
+            if ((args != nullptr) and args->IsTuple() and (args->AsTuple()->size() > 0)
+            and (args->AsTuple()->GetItem(0) != nullptr) and args->AsTuple()->GetItem(0)->IsDict())
+                return args->AsTuple()->GetItem(0)->AsDict();
+        }
+        if (obj->dict().size() > 0)
+            return &obj->dict();
+    }
+    return nullptr;
+}
+
+static void fit_ids_of(PyRep* rep, std::vector<uint32>& into)
+{
+    if (rep == nullptr)
+        return;
+    if (rep->IsList()) {
+        for (PyList::const_iterator itr = rep->AsList()->begin(); itr != rep->AsList()->end(); ++itr)
+            if ((*itr)->IsInt() or (*itr)->IsLong())
+                into.push_back(PyRep::IntegerValueU32(*itr));
+    } else if (rep->IsTuple()) {
+        for (PyTuple::const_iterator itr = rep->AsTuple()->begin(); itr != rep->AsTuple()->end(); ++itr)
+            if ((*itr)->IsInt() or (*itr)->IsLong())
+                into.push_back(PyRep::IntegerValueU32(*itr));
+    } else if (rep->IsObjectEx()) {
+        PyObjectEx* obj(rep->AsObjectEx());
+        PyRep* header(obj->header());
+        if ((header != nullptr) and header->IsTuple() and (header->AsTuple()->size() > 1)) {
+            PyRep* args(header->AsTuple()->GetItem(1));
+            if ((args != nullptr) and args->IsTuple() and (args->AsTuple()->size() > 0))
+                fit_ids_of(args->AsTuple()->GetItem(0), into);
+        }
+        if (obj->list().size() > 0)
+            fit_ids_of(&obj->list(), into);
+    }
+}
+
+PyResult InventoryBound::FitFitting(PyCallArgs& call, PyInt* shipID, PyObjectEx* itemsToFit, PyInt* stationID,
+                                    PyDict* modulesByFlag, PyDict* dronesByType)
 {
     Client* pClient(call.client);
     if (pClient->IsInSpace())
@@ -1604,122 +1659,115 @@ PyResult InventoryBound::FitFitting(PyCallArgs& call, PyInt* shipID, PyObjectEx*
     if ((sRef.get() == nullptr) or (sRef->itemID() != (uint32)shipID->value()))
         throw CustomError ("You can only fit a saved fitting to the ship you are in.");
 
-    /*  The client's fitting KeyVal, dumped until this is settled:  the shape it sends here is
-     *  not necessarily the shape it sends to SaveFitting, and Decode speaks the latter.
+    /*  The items the client picked, by type.  Anything it could not find a candidate for is
+     *  simply absent, and the pilot is told about it below.
      */
-    if (is_log_enabled(INV__MESSAGE)) {
-        _log(INV__MESSAGE, "IB::FitFitting() - arg2 (fitting):");
-        fitting->Dump(INV__MESSAGE, "        ");
-        _log(INV__MESSAGE, "IB::FitFitting() - arg3 (int) = %i,  arg4:", ownerID->value());
-        itemsByType->Dump(INV__MESSAGE, "        ");
-        _log(INV__MESSAGE, "IB::FitFitting() - arg5:");
-        dronesByType->Dump(INV__MESSAGE, "        ");
-    }
+    std::map<uint32, std::vector<uint32>> candidates;
+    PyDict* picked(fit_dict_of(itemsToFit));
+    if (picked != nullptr)
+        for (auto cur : *picked)
+            if (cur.first->IsInt() or cur.first->IsLong())
+                fit_ids_of(cur.second, candidates[PyRep::IntegerValueU32(cur.first)]);
 
-    FittingData data;
-    FittingDB::Decode(fitting, data);           // throws the client's own errors on a malformed fit
-    if (sRef->typeID() != data.shipTypeID)
-        throw UserError ("CantFitModuleToThatShip");
-
-    /*  Where the items may come from:  this bind's own inventory (the hangar the window was
-     *  opened on), the station hangar, and the ship's cargo.  Keyed by type, taken from the
-     *  front as slots claim them, so two of a type fill two slots and never the same one twice.
+    /*  Slots in flag order, so lows, mids and highs go in before rigs.
      */
-    std::map<uint32, std::vector<InventoryItemRef>> stock;
-    std::set<uint32> seen;
-    auto harvest = [&](Inventory* pInv, EVEItemFlags flag) {
-        if (pInv == nullptr)
-            return;
-        pInv->LoadContents();
-        std::vector<InventoryItemRef> contents;
-        pInv->GetItemsByFlag(flag, contents);
-        for (auto cur : contents) {
-            if ((cur.get() == nullptr) or (cur->itemID() == sRef->itemID()))
-                continue;
-            if (cur->ownerID() != pClient->GetCharacterID())
-                continue;
-            if (!seen.insert(cur->itemID()).second)
-                continue;
-            stock[cur->typeID()].push_back(cur);
-        }
-    };
+    std::map<uint16, uint32> slots;
+    for (auto cur : *modulesByFlag)
+        if ((cur.first->IsInt() or cur.first->IsLong()) and (cur.second->IsInt() or cur.second->IsLong()))
+            slots[(uint16)PyRep::IntegerValue(cur.first)] = PyRep::IntegerValueU32(cur.second);
 
-    harvest(pInventory, flagHangar);
-    InventoryItemRef stationRef(sItemFactory.GetItemRef(pClient->GetStationID()));
-    if (stationRef.get() != nullptr)
-        harvest(stationRef->GetMyInventory(), flagHangar);
-    harvest(sRef->GetMyInventory(), flagCargoHold);
-
-    _log(INV__MESSAGE, "IB::FitFitting() - %s fitting '%s' to %s(%u):  %lu slot(s) wanted, %lu type(s) available.",
-         pClient->GetName(), data.name.c_str(), sRef->itemName().c_str(), sRef->itemID(),
-         data.items.size(), stock.size());
+    _log(INV__MESSAGE, "IB::FitFitting() - %s fitting %s(%u):  %lu slot(s), %lu type(s) offered.",
+         pClient->GetName(), sRef->itemName().c_str(), sRef->itemID(), slots.size(), candidates.size());
 
     std::set<uint32> failed;
-    uint32 placedCount(0);
-    for (auto cur : data.items) {
-        uint32 typeID(std::get<0>(cur)), qty(std::get<2>(cur));
-        EVEItemFlags flag((EVEItemFlags)std::get<1>(cur));
+    uint32 placed(0);
 
-        /*  A module slot takes one item;  a drone bay or a loaded charge takes a quantity,
-         *  which may mean splitting a stack and leaving the rest where it was.
-         */
-        bool slot(IsModuleSlot(flag));
-        uint32 remaining(slot ? 1 : qty);
+    /*  Takes the next unused item of a type from the client's own picks, skipping any that
+     *  have gone stale -- sold, moved, or already on this ship -- since it listed them.
+     */
+    auto claim = [&](uint32 typeID) -> InventoryItemRef {
+        std::map<uint32, std::vector<uint32>>::iterator itr(candidates.find(typeID));
+        while ((itr != candidates.end()) and !itr->second.empty()) {
+            uint32 itemID(itr->second.back());
+            itr->second.pop_back();
+            InventoryItemRef iRef(sItemFactory.GetItemRef(itemID));
+            if ((iRef.get() != nullptr) and (iRef->ownerID() == pClient->GetCharacterID())
+            and (iRef->typeID() == typeID) and (iRef->locationID() != sRef->itemID()))
+                return iRef;
+        }
+        return InventoryItemRef(nullptr);
+    };
 
-        while (remaining > 0) {
-            std::map<uint32, std::vector<InventoryItemRef>>::iterator itr(stock.find(typeID));
-            if ((itr == stock.end()) or itr->second.empty()) {
-                _log(INV__WARNING, "IB::FitFitting() - nothing left of type %u for flag %u.", typeID, flag);
+    for (auto cur : slots) {
+        EVEItemFlags flag((EVEItemFlags)cur.first);
+        uint32 typeID(cur.second);
+
+        InventoryItemRef iRef(claim(typeID));
+        if (iRef.get() == nullptr) {
+            _log(INV__WARNING, "IB::FitFitting() - no item of type %u left for flag %u.", typeID, flag);
+            failed.insert(typeID);
+            continue;
+        }
+
+        std::string why("the ship refused it");
+        bool ok(false);
+        try {
+            sRef->VerifyHoldType(flag, iRef, pClient);
+            sRef->TryModuleLimitChecks(flag, iRef);
+            ok = (sRef->AddItemByFlag(flag, iRef, pClient) > 0);
+        } catch (PyException& e) {
+            why = "a fitting check refused it";       // powergrid, cpu, calibration, slot rules
+        } catch (...) {
+            why = "an unexpected error";
+        }
+        if (!ok) {
+            _log(INV__WARNING, "IB::FitFitting() - %s(%u) into flag %u failed:  %s.",
+                 iRef->name(), typeID, flag, why.c_str());
+            failed.insert(typeID);
+            continue;
+        }
+        ++placed;
+    }
+
+    //  drones are a quantity in the bay rather than a slot, and may have to come out of a stack
+    for (auto cur : *dronesByType) {
+        if (!(cur.first->IsInt() or cur.first->IsLong()) or !(cur.second->IsInt() or cur.second->IsLong()))
+            continue;
+        uint32 typeID(PyRep::IntegerValueU32(cur.first)), want(PyRep::IntegerValueU32(cur.second));
+
+        while (want > 0) {
+            InventoryItemRef iRef(claim(typeID));
+            if (iRef.get() == nullptr) {
+                _log(INV__WARNING, "IB::FitFitting() - %u drone(s) of type %u short.", want, typeID);
                 failed.insert(typeID);
                 break;
             }
-
-            InventoryItemRef iRef(itr->second.front());
-            uint32 take(std::min(remaining, (uint32)iRef->quantity()));
+            uint32 take(std::min(want, (uint32)iRef->quantity()));
             if ((uint32)iRef->quantity() > take) {
                 InventoryItemRef part(iRef->Split(take));
                 if (part.get() == nullptr) {
-                    _log(INV__WARNING, "IB::FitFitting() - could not split %u of type %u.", take, typeID);
                     failed.insert(typeID);
                     break;
                 }
                 iRef = part;
-            } else {
-                itr->second.erase(itr->second.begin());
             }
-
-            bool placed(false);
-            std::string why("the ship refused it");
             try {
-                sRef->VerifyHoldType(flag, iRef, pClient);
-                if (slot)
-                    sRef->TryModuleLimitChecks(flag, iRef);
-                placed = (sRef->AddItemByFlag(flag, iRef, pClient) > 0);
-            } catch (PyException& e) {
-                /*  Powergrid, CPU, calibration, a slot that will not take this module -- the
-                 *  rest of the fit should still go on, and the client is told which type the
-                 *  pilot has to sort out.
-                 */
-                why = "a fitting check refused it";
-                placed = false;
+                sRef->VerifyHoldType(flagDroneBay, iRef, pClient);
+                if (sRef->AddItemByFlag(flagDroneBay, iRef, pClient) < 1)
+                    throw CustomError ("drone bay refused");
             } catch (...) {
-                why = "an unexpected error";
-                placed = false;
-            }
-            if (!placed) {
-                _log(INV__WARNING, "IB::FitFitting() - %s(%u) into flag %u failed:  %s.",
-                     iRef->name(), typeID, flag, why.c_str());
+                _log(INV__WARNING, "IB::FitFitting() - drone type %u refused by the bay.", typeID);
                 failed.insert(typeID);
                 break;
             }
-            ++placedCount;
-            remaining -= take;
+            placed += take;
+            want -= take;
         }
     }
 
     sRef->OnlineAll();
 
-    _log(INV__MESSAGE, "IB::FitFitting() - %u item(s) fitted, %lu type(s) failed.", placedCount, failed.size());
+    _log(INV__MESSAGE, "IB::FitFitting() - %u item(s) fitted, %lu type(s) failed.", placed, failed.size());
 
     PyList* res = new PyList();
     for (auto cur : failed)

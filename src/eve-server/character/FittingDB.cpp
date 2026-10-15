@@ -240,11 +240,49 @@ static bool IsFittingFlag(int64 flag)
         or (flag == flagDroneBay);
 }
 
+/*  A util.KeyVal reaches us in more than one shape.  SaveFitting's arrives as an old-style
+ *  PyObject whose arguments are the dict;  the fitting window's Fit button sends a PyObjectEx,
+ *  which carries its attributes either in the args tuple of its header or in its own dict.
+ *  Decoding only the first shape is what made Fit answer "contains no hardware information".
+ */
+static PyDict* KeyValDict(PyRep* rep)
+{
+    if (rep == nullptr)
+        return nullptr;
+
+    if (rep->IsDict())
+        return rep->AsDict();
+
+    if (rep->IsObject() and (rep->AsObject()->arguments() != nullptr) and rep->AsObject()->arguments()->IsDict())
+        return rep->AsObject()->arguments()->AsDict();
+
+    if (rep->IsObjectEx()) {
+        PyObjectEx* obj(rep->AsObjectEx());
+        // util.KeyVal ( {...} )
+        PyRep* header(obj->header());
+        if ((header != nullptr) and header->IsTuple() and (header->AsTuple()->size() > 1)) {
+            PyRep* args(header->AsTuple()->GetItem(1));
+            if ((args != nullptr) and args->IsTuple() and (args->AsTuple()->size() > 0)) {
+                PyRep* first(args->AsTuple()->GetItem(0));
+                if ((first != nullptr) and first->IsDict())
+                    return first->AsDict();
+            }
+            if ((args != nullptr) and args->IsDict())
+                return args->AsDict();
+        }
+        // ...or reduced to its __dict__, which marshals into the object's own dict payload
+        if (obj->dict().size() > 0)
+            return &obj->dict();
+    }
+
+    return nullptr;
+}
+
 void FittingDB::Decode(PyRep* rep, FittingData& into)
 {
-    if ((rep == nullptr) or (!rep->IsObject()) or (!rep->AsObject()->arguments()->IsDict()))
+    PyDict* dict(KeyValDict(rep));
+    if (dict == nullptr)
         throw UserError ("ParseFittingFittingDataEmpty");
-    PyDict* dict = rep->AsObject()->arguments()->AsDict();
 
     PyRep* name = dict->GetItemString("name");
     PyRep* desc = dict->GetItemString("description");

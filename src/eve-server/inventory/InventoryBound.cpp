@@ -1604,6 +1604,18 @@ PyResult InventoryBound::FitFitting(PyCallArgs& call, PyInt* shipID, PyObjectEx*
     if ((sRef.get() == nullptr) or (sRef->itemID() != (uint32)shipID->value()))
         throw CustomError ("You can only fit a saved fitting to the ship you are in.");
 
+    /*  The client's fitting KeyVal, dumped until this is settled:  the shape it sends here is
+     *  not necessarily the shape it sends to SaveFitting, and Decode speaks the latter.
+     */
+    if (is_log_enabled(INV__MESSAGE)) {
+        _log(INV__MESSAGE, "IB::FitFitting() - arg2 (fitting):");
+        fitting->Dump(INV__MESSAGE, "        ");
+        _log(INV__MESSAGE, "IB::FitFitting() - arg3 (int) = %i,  arg4:", ownerID->value());
+        itemsByType->Dump(INV__MESSAGE, "        ");
+        _log(INV__MESSAGE, "IB::FitFitting() - arg5:");
+        dronesByType->Dump(INV__MESSAGE, "        ");
+    }
+
     FittingData data;
     FittingDB::Decode(fitting, data);           // throws the client's own errors on a malformed fit
     if (sRef->typeID() != data.shipTypeID)

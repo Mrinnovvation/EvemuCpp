@@ -320,6 +320,17 @@ void NPCEwar::Cycle(Effect& fx, SystemEntity* pTarget)
         case Ewar::Jam: {
             // every cycle rolls again against the target's sensors
             Ewar::EndJam(m_self, 0, pTarget);
+            /*  One jam at a time.  Our own is dropped above, so what IsJammed() answers now is
+             *  whether somebody else has them -- and if they do, we do not pile ours on top.
+             *
+             *  Every new jam entry costs the target all of its locks, so a site full of ecm
+             *  rats, each re-rolling on its own cycle, wiped the pilot's locks every few
+             *  seconds while a lock takes seven to acquire:  the windows to lock anything at
+             *  all closed up entirely.  With one jammer at a time, a jam that ends is a window
+             *  until somebody rolls again.
+             */
+            if ((pTarget->GetEwar() != nullptr) and pTarget->GetEwar()->IsJammed())
+                break;
             if (Ewar::RollJam(m_selfRef, m_self->GetPosition(), pTarget, AttrEntityTargetJamMaxRange, AttrEntityTargetJamFallOff, m_self->GetRadius()))
                 Ewar::StartJam(m_self, 0, pTarget, fx.duration);
         } break;
